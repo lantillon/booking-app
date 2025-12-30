@@ -3,8 +3,8 @@ const nextConfig = {
   reactStrictMode: true,
   // Optimize for production builds
   swcMinify: true,
-  // Increase memory limit for webpack
-  webpack: (config, { isServer }) => {
+  // Disable eval in production for CSP compliance
+  webpack: (config, { isServer, dev }) => {
     if (!isServer) {
       config.resolve.fallback = {
         ...config.resolve.fallback,
@@ -13,6 +13,16 @@ const nextConfig = {
         tls: false,
       }
     }
+    
+    // Disable eval in production
+    if (!dev) {
+      config.output.globalObject = 'globalThis'
+      config.optimization = {
+        ...config.optimization,
+        minimize: true,
+      }
+    }
+    
     return config
   },
 }
