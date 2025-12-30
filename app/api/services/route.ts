@@ -11,10 +11,16 @@ export async function GET() {
     })
 
     return NextResponse.json(services)
-  } catch (error) {
+  } catch (error: any) {
     console.error('Services error:', error)
+    
+    // Provide more helpful error message in development
+    const errorMessage = process.env.NODE_ENV === 'development' 
+      ? error.message || 'Database connection failed'
+      : 'server_error'
+    
     return NextResponse.json(
-      { error: 'server_error' },
+      { error: 'server_error', message: errorMessage },
       { status: 500 }
     )
   }

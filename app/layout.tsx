@@ -7,6 +7,9 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Booking System',
   description: 'Book your appointment',
+  icons: {
+    icon: '/favicon.svg',
+  },
 }
 
 export default function RootLayout({
