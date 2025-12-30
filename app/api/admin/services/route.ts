@@ -11,6 +11,8 @@ const serviceSchema = z.object({
   isActive: z.boolean().optional().default(true),
 })
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)

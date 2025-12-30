@@ -9,6 +9,8 @@ const bookSchema = z.object({
   notes: z.string().optional().default(''),
 })
 
+export const dynamic = 'force-dynamic'
+
 // Public proxy route that handles API key server-side
 export async function POST(request: NextRequest) {
   try {

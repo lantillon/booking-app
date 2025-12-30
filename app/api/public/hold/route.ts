@@ -13,6 +13,8 @@ const holdSchema = z.object({
 
 const HOLD_DURATION_MINUTES = 8
 
+export const dynamic = 'force-dynamic'
+
 // Public proxy route that handles API key server-side
 export async function POST(request: NextRequest) {
   try {

@@ -14,6 +14,8 @@ const holdSchema = z.object({
 
 const HOLD_DURATION_MINUTES = 8
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: NextRequest) {
   try {
     // Check authentication

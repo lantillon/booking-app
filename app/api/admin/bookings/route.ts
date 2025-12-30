@@ -7,6 +7,8 @@ import { zonedTimeToUtc } from 'date-fns-tz'
 
 const TIMEZONE = 'America/Denver'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
