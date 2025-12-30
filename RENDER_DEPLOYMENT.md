@@ -27,10 +27,12 @@ Fill in these settings:
 
 ### Build & Deploy:
 - **Environment**: `Node`
+- **Node Version**: `20.x` (important - select this in advanced settings)
 - **Build Command**: 
   ```
-  npm install && npx prisma generate && npm run build
+  npm ci && npx prisma generate && npm run build
   ```
+  (Using `npm ci` instead of `npm install` for more reliable builds)
 - **Start Command**: 
   ```
   npm start
