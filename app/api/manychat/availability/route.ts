@@ -112,11 +112,6 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Return error details in development, generic message in production
-    const errorMessage = process.env.NODE_ENV === 'development'
-      ? `Error: ${error.message || 'Unknown error'}`
-      : 'Sorry, something went wrong while fetching availability.'
-
     return NextResponse.json(
       {
         version: 'v2',
@@ -124,7 +119,8 @@ export async function GET(request: NextRequest) {
           messages: [
             {
               type: 'text',
-              text: errorMessage,
+              // Always include the real error message so we can debug from ManyChat
+              text: `Error: ${error?.message || 'Unknown error'}`,
             },
           ],
         },
