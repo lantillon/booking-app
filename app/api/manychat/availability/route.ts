@@ -36,9 +36,50 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url)
+    const serviceIdParam = searchParams.get('service_id')
+    const dateParam = searchParams.get('date')
+    
+    // Log what we received for debugging
+    console.log('ManyChat request params:', { service_id: serviceIdParam, date: dateParam, fullUrl: request.url })
+    
+    // Check if parameters are missing
+    if (!serviceIdParam) {
+      return NextResponse.json(
+        {
+          version: 'v2',
+          content: {
+            messages: [
+              {
+                type: 'text',
+                text: 'Missing service_id parameter. Make sure ManyChat is sending service_id={{selected_service_id}} in the URL.',
+              },
+            ],
+          },
+        },
+        { status: 400 }
+      )
+    }
+    
+    if (!dateParam) {
+      return NextResponse.json(
+        {
+          version: 'v2',
+          content: {
+            messages: [
+              {
+                type: 'text',
+                text: 'Missing date parameter. Make sure ManyChat is sending date={{selected_date}} in the URL.',
+              },
+            ],
+          },
+        },
+        { status: 400 }
+      )
+    }
+
     const params = {
-      service_id: searchParams.get('service_id'),
-      date: searchParams.get('date'),
+      service_id: serviceIdParam,
+      date: dateParam,
     }
 
     const validation = querySchema.safeParse(params)
@@ -50,7 +91,7 @@ export async function GET(request: NextRequest) {
             messages: [
               {
                 type: 'text',
-                text: `Invalid input: ${validation.error.errors.map(e => e.message).join(', ')}`,
+                text: `Invalid input: ${validation.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')}`,
               },
             ],
           },
@@ -60,6 +101,24 @@ export async function GET(request: NextRequest) {
     }
 
     const { service_id, date } = validation.data
+    
+    // Double-check service_id is valid
+    if (!service_id || isNaN(service_id) || service_id <= 0) {
+      return NextResponse.json(
+        {
+          version: 'v2',
+          content: {
+            messages: [
+              {
+                type: 'text',
+                text: `Invalid service_id: ${serviceIdParam}. It must be a positive number.`,
+              },
+            ],
+          },
+        },
+        { status: 400 }
+      )
+    }
 
     // Get our standard availability structure
     const availability = await getAvailability(service_id, date)
