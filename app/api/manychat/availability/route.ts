@@ -62,7 +62,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(manychatPayload)
   } catch (error: any) {
-    console.error('ManyChat availability error:', error)
+    console.error('ManyChat availability error:', {
+      message: error.message,
+      code: error.code,
+      name: error.name,
+      stack: error.stack,
+    })
 
     if (error.message === 'Service not found or inactive') {
       return NextResponse.json(
@@ -81,6 +86,11 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // Return error details in development, generic message in production
+    const errorMessage = process.env.NODE_ENV === 'development'
+      ? `Error: ${error.message || 'Unknown error'}`
+      : 'Sorry, something went wrong while fetching availability.'
+
     return NextResponse.json(
       {
         version: 'v2',
@@ -88,7 +98,7 @@ export async function GET(request: NextRequest) {
           messages: [
             {
               type: 'text',
-              text: 'Sorry, something went wrong while fetching availability.',
+              text: errorMessage,
             },
           ],
         },
