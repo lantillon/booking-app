@@ -17,7 +17,23 @@ export async function GET(request: NextRequest) {
   try {
     // Re‑use the same API key auth as the main availability endpoint
     const authError = apiAuthMiddleware(request)
-    if (authError) return authError
+    if (authError) {
+      // Return ManyChat format even for auth errors
+      return NextResponse.json(
+        {
+          version: 'v2',
+          content: {
+            messages: [
+              {
+                type: 'text',
+                text: 'Authentication failed. Please check your API key.',
+              },
+            ],
+          },
+        },
+        { status: 401 }
+      )
+    }
 
     const { searchParams } = new URL(request.url)
     const params = {
@@ -28,7 +44,17 @@ export async function GET(request: NextRequest) {
     const validation = querySchema.safeParse(params)
     if (!validation.success) {
       return NextResponse.json(
-        { error: 'invalid_input', details: validation.error.errors },
+        {
+          version: 'v2',
+          content: {
+            messages: [
+              {
+                type: 'text',
+                text: `Invalid input: ${validation.error.errors.map(e => e.message).join(', ')}`,
+              },
+            ],
+          },
+        },
         { status: 400 }
       )
     }
