@@ -1,0 +1,145 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { hoursMinutesToMinutes } from '@/lib/utils';
+
+export default function NewAddOnPage() {
+  const router = useRouter();
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    price: 0,
+    duration: '',
+  });
+  const [durationHours, setDurationHours] = useState(0);
+  const [durationMinutes, setDurationMinutes] = useState(0);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const totalMinutes = hoursMinutesToMinutes(durationHours, durationMinutes);
+    const addOn = {
+      id: Date.now().toString(),
+      name: formData.name,
+      description: formData.description,
+      price: formData.price,
+      duration: totalMinutes > 0 ? totalMinutes : undefined,
+    };
+    await fetch('/api/addons', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(addOn),
+    });
+    router.push('/admin');
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-100">
+      <nav className="bg-black/90 backdrop-blur-md shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between h-16">
+            <div className="flex items-center">
+              <Link href="/" className="text-2xl font-bold text-white">
+                Booking Site
+              </Link>
+            </div>
+            <div className="flex items-center space-x-4">
+              <Link
+                href="/admin"
+                className="px-4 py-2 text-black hover:text-black font-medium"
+              >
+                Back to Admin
+              </Link>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <main className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <h1 className="text-3xl font-bold text-black mb-8">New Add-on</h1>
+        <form onSubmit={handleSubmit} className="bg-white shadow rounded-lg p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-black mb-1">Name</label>
+            <input
+              type="text"
+              required
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-black mb-1">Description</label>
+            <textarea
+              required
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              rows={3}
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-black mb-1">Price ($)</label>
+              <input
+                type="number"
+                required
+                min="0"
+                step="0.01"
+                value={formData.price}
+                onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) })}
+                className="w-full border border-gray-300 rounded-md px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-black mb-1">
+                Additional Duration (optional)
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <input
+                    type="number"
+                    min="0"
+                    value={durationHours}
+                    onChange={(e) => setDurationHours(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2"
+                    placeholder="Hours"
+                  />
+                  <span className="text-xs text-gray-600">Hours</span>
+                </div>
+                <div>
+                  <input
+                    type="number"
+                    min="0"
+                    max="59"
+                    value={durationMinutes}
+                    onChange={(e) => setDurationMinutes(Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2"
+                    placeholder="Minutes"
+                  />
+                  <span className="text-xs text-gray-600">Minutes</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex space-x-4">
+            <button
+              type="submit"
+              className="px-4 py-2 bg-sky-400 text-black rounded-md hover:bg-indigo-700"
+            >
+              Create Add-on
+            </button>
+            <Link
+              href="/admin"
+              className="px-4 py-2 bg-gray-200 text-black rounded-md hover:bg-gray-300"
+            >
+              Cancel
+            </Link>
+          </div>
+        </form>
+      </main>
+    </div>
+  );
+}
+

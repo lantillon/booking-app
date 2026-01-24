@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Booking Site</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f3f4f6;
+            background-image: url('/background.jpg');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            color: #000000;
+            display: block !important;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        nav {
+            background: rgba(0, 0, 0, 0.9);
+            padding: 1rem 0;
+            margin-bottom: 2rem;
+        }
+        nav .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        nav a {
+            color: white;
+            text-decoration: none;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        nav .book-link {
+            color: white;
+            text-decoration: none;
+            padding: 0.5rem 1rem;
+        }
+        .main-content {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(8px);
+            border-radius: 8px;
+            padding: 3rem;
+            margin-top: 2rem;
+        }
+        h1 {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        p {
+            font-size: 1.25rem;
+            margin-bottom: 2rem;
+        }
+        .btn {
+            display: inline-block;
+            padding: 1rem 2rem;
+            background: rgba(56, 189, 248, 0.8);
+            color: #000;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 1.1rem;
+        }
+        .btn:hover {
+            background: rgba(56, 189, 248, 0.9);
+        }
+        .error-notice {
+            background: rgba(255, 0, 0, 0.1);
+            border: 1px solid rgba(255, 0, 0, 0.3);
+            padding: 1rem;
+            margin-top: 2rem;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="container">
+            <a href="/">Booking Site</a>
+            <a href="/book" class="book-link">Book Appointment</a>
+        </div>
+    </nav>
+    
+    <div class="container">
+        <div class="main-content">
+            <h1>Welcome to Booking Site</h1>
+            <p>Easily book your appointments online. Browse our services and find a time that works for you.</p>
+            <a href="/book" class="btn">Book Now</a>
+            
+            <div class="error-notice">
+                <p><strong>Note:</strong> If you're seeing this page, there may be a build issue. The site is running but JavaScript may not be fully loaded. Try refreshing the page or check the browser console for errors.</p>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Try to redirect to Next.js app if it's working
+        if (window.location.pathname === '/' || window.location.pathname === '/index.html') {
+            // Check if Next.js is working
+            fetch('/')
+                .then(response => {
+                    if (response.ok && !response.url.includes('index.html')) {
+                        // Next.js is working, reload
+                        window.location.reload();
+                    }
+                })
+                .catch(() => {
+                    // Next.js not working, stay on this page
+                });
+        }
+    </script>
+</body>
+</html>

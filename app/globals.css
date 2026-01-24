@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import 'leaflet/dist/leaflet.css';
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  color: #000000;
+  background: #f3f4f6;
+  background-image: url('/background.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+  font-family: Arial, Helvetica, sans-serif;
+  display: block !important; /* Ensure body is visible even if JS fails */
+}
+
+/* Override Next.js FOUC prevention that hides body */
+body[style*="display: none"] {
+  display: block !important;
+}
+
+/* Force visibility even with inline styles */
+html body {
+  display: block !important;
+}
+
+* {
+  color: #000000 !important;
+}
+
+a, p, h1, h2, h3, h4, h5, h6, span, div, label, button, input, textarea, select, li, td, th {
+  color: #000000 !important;
+}
+
+/* Exception for gray text on booking page */
+h1.text-gray-400 {
+  color: #9ca3af !important;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Make form inputs transparent but readable */
+input, textarea, select {
+  background-color: rgba(255, 255, 255, 0.3) !important;
+  backdrop-filter: blur(8px);
+  border-color: rgba(0, 0, 0, 0.2) !important;
+}
+
+input:focus, textarea:focus, select:focus {
+  background-color: rgba(255, 255, 255, 0.4) !important;
+  outline: none;
+  border-color: rgba(59, 130, 246, 0.5) !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Make buttons more visible but still transparent */
+button {
+  backdrop-filter: blur(8px);
+}
+
+/* Calendar and date picker transparency */
+.bg-white {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  backdrop-filter: blur(8px);
+}
+

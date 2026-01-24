@@ -1,0 +1,350 @@
+// Supabase helper functions for data operations
+import { supabase, isSupabaseConfigured } from './supabase';
+import { Service, AddOn, Booking, Availability, Customer } from '@/types';
+
+const defaultAvailability: Availability = {
+  workingHours: {
+    monday: { start: '09:00', end: '17:00', enabled: true },
+    tuesday: { start: '09:00', end: '17:00', enabled: true },
+    wednesday: { start: '09:00', end: '17:00', enabled: true },
+    thursday: { start: '09:00', end: '17:00', enabled: true },
+    friday: { start: '09:00', end: '17:00', enabled: true },
+    saturday: { start: '09:00', end: '17:00', enabled: false },
+    sunday: { start: '09:00', end: '17:00', enabled: false },
+  },
+  slotDuration: 30,
+  paddingTime: 15,
+};
+
+export async function getServicesSupabase(): Promise<Service[]> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('services').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(transformService);
+}
+
+export async function getServiceSupabase(id: string): Promise<Service | undefined> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('services').select('*').eq('id', id).single();
+  if (error) {
+    if (error.code === 'PGRST116') return undefined; // Not found
+    throw error;
+  }
+  return data ? transformService(data) : undefined;
+}
+
+export async function addServiceSupabase(service: Service): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const insertData: any = {
+    id: service.id,
+    name: service.name,
+    description: service.description,
+    duration: service.duration,
+    price: service.price,
+    image: service.image || null,
+    vehicle_pricing: service.vehiclePricing || null,
+    use_vehicle_pricing: service.useVehiclePricing || false,
+  };
+  // Only include addon_ids if the column exists (check by trying to query it first, or make it optional)
+  // For now, make it optional - if column doesn't exist, it will be ignored
+  if (service.addOnIds !== undefined) {
+    insertData.addon_ids = service.addOnIds || null;
+  }
+  const { error } = await supabase.from('services').insert(insertData);
+  if (error) throw error;
+}
+
+export async function updateServiceSupabase(id: string, service: Partial<Service>): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const updateData: any = {};
+  if (service.name !== undefined) updateData.name = service.name;
+  if (service.description !== undefined) updateData.description = service.description;
+  if (service.duration !== undefined) updateData.duration = service.duration;
+  if (service.price !== undefined) updateData.price = service.price;
+  if (service.image !== undefined) updateData.image = service.image;
+  if (service.vehiclePricing !== undefined) updateData.vehicle_pricing = service.vehiclePricing;
+  if (service.useVehiclePricing !== undefined) updateData.use_vehicle_pricing = service.useVehiclePricing;
+  // Only update addon_ids if provided and column exists
+  // Make it optional for backward compatibility
+  if (service.addOnIds !== undefined) {
+    updateData.addon_ids = service.addOnIds || null;
+  }
+  const { error } = await supabase.from('services').update(updateData).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteServiceSupabase(id: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await supabase.from('services').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function getAddOnsSupabase(): Promise<AddOn[]> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('addons').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(transformAddOn);
+}
+
+export async function getAddOnSupabase(id: string): Promise<AddOn | undefined> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('addons').select('*').eq('id', id).single();
+  if (error) {
+    if (error.code === 'PGRST116') return undefined;
+    throw error;
+  }
+  return data ? transformAddOn(data) : undefined;
+}
+
+export async function addAddOnSupabase(addOn: AddOn): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await supabase.from('addons').insert({
+    id: addOn.id,
+    name: addOn.name,
+    description: addOn.description,
+    price: addOn.price,
+    duration: addOn.duration || null,
+  });
+  if (error) throw error;
+}
+
+export async function updateAddOnSupabase(id: string, addOn: Partial<AddOn>): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const updateData: any = {};
+  if (addOn.name !== undefined) updateData.name = addOn.name;
+  if (addOn.description !== undefined) updateData.description = addOn.description;
+  if (addOn.price !== undefined) updateData.price = addOn.price;
+  if (addOn.duration !== undefined) updateData.duration = addOn.duration;
+  const { error } = await supabase.from('addons').update(updateData).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteAddOnSupabase(id: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await supabase.from('addons').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function getBookingsSupabase(): Promise<Booking[]> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('bookings').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(transformBooking);
+}
+
+export async function getBookingSupabase(id: string): Promise<Booking | undefined> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('bookings').select('*').eq('id', id).single();
+  if (error) {
+    if (error.code === 'PGRST116') return undefined;
+    throw error;
+  }
+  return data ? transformBooking(data) : undefined;
+}
+
+export async function addBookingSupabase(booking: Booking): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await supabase.from('bookings').insert({
+    id: booking.id,
+    customer_name: booking.customerName,
+    customer_email: booking.customerEmail,
+    customer_phone: booking.customerPhone || null,
+    location: booking.location,
+    service_id: booking.serviceId,
+    service_name: booking.serviceName,
+    addon_ids: booking.addOnIds,
+    addon_names: booking.addOnNames,
+    date: booking.date,
+    time: booking.time,
+    duration: booking.duration,
+    total_price: booking.totalPrice,
+    vehicle_size: booking.vehicleSize || null,
+  });
+  if (error) throw error;
+}
+
+export async function deleteBookingSupabase(id: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await supabase.from('bookings').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function getAvailabilitySupabase(): Promise<Availability> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('availability').select('*').eq('id', 'singleton').single();
+  if (error) {
+    if (error.code === 'PGRST116') return defaultAvailability;
+    throw error;
+  }
+  return {
+    workingHours: data.working_hours as Availability['workingHours'],
+    slotDuration: data.slot_duration,
+    paddingTime: data.padding_time,
+  };
+}
+
+export async function updateAvailabilitySupabase(availability: Availability): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await supabase
+    .from('availability')
+    .upsert({
+      id: 'singleton',
+      working_hours: availability.workingHours,
+      slot_duration: availability.slotDuration,
+      padding_time: availability.paddingTime,
+    });
+  if (error) throw error;
+}
+
+export async function getCustomersSupabase(): Promise<Customer[]> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('customers').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(transformCustomer);
+}
+
+export async function getCustomerByEmailSupabase(email: string): Promise<Customer | undefined> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('customers').select('*').eq('email', email.toLowerCase()).single();
+  if (error) {
+    if (error.code === 'PGRST116') return undefined;
+    throw error;
+  }
+  return data ? transformCustomer(data) : undefined;
+}
+
+export async function getCustomerSupabase(id: string): Promise<Customer | undefined> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('customers').select('*').eq('id', id).single();
+  if (error) {
+    if (error.code === 'PGRST116') return undefined;
+    throw error;
+  }
+  return data ? transformCustomer(data) : undefined;
+}
+
+export async function createOrUpdateCustomerSupabase(customerData: {
+  name: string;
+  email: string;
+  phone?: string;
+  amountSpent: number;
+}): Promise<Customer> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const pointsToAward = Math.floor(customerData.amountSpent);
+  
+  // Try to get existing customer
+  const existing = await getCustomerByEmailSupabase(customerData.email);
+  
+  if (existing) {
+    // Update existing
+    const { data, error } = await supabase
+      .from('customers')
+      .update({
+        name: customerData.name,
+        phone: customerData.phone || existing.phone,
+        total_spent: existing.totalSpent + customerData.amountSpent,
+        points: existing.points + pointsToAward,
+      })
+      .eq('id', existing.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return transformCustomer(data);
+  } else {
+    // Create new
+    const newCustomer: Customer = {
+      id: Date.now().toString(),
+      name: customerData.name,
+      email: customerData.email,
+      phone: customerData.phone,
+      totalSpent: customerData.amountSpent,
+      points: pointsToAward,
+      createdAt: new Date().toISOString(),
+    };
+    const { error } = await supabase.from('customers').insert({
+      id: newCustomer.id,
+      name: newCustomer.name,
+      email: newCustomer.email,
+      phone: newCustomer.phone || null,
+      total_spent: newCustomer.totalSpent,
+      points: newCustomer.points,
+    });
+    if (error) throw error;
+    return newCustomer;
+  }
+}
+
+export async function applyDiscountSupabase(customerId: string, discountAmount: number): Promise<boolean> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const customer = await getCustomerSupabase(customerId);
+  if (!customer) return false;
+  
+  const pointsNeeded = (discountAmount / 10) * 200;
+  if (customer.points >= pointsNeeded) {
+    const { error } = await supabase
+      .from('customers')
+      .update({ points: customer.points - pointsNeeded })
+      .eq('id', customerId);
+    if (error) throw error;
+    return true;
+  }
+  return false;
+}
+
+// Transform functions to convert database schema to TypeScript types
+function transformService(row: any): Service {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    duration: row.duration,
+    price: parseFloat(row.price),
+    image: row.image || undefined,
+    vehiclePricing: row.vehicle_pricing || undefined,
+    useVehiclePricing: row.use_vehicle_pricing || false,
+    addOnIds: row.addon_ids || undefined,
+  };
+}
+
+function transformAddOn(row: any): AddOn {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    price: parseFloat(row.price),
+    duration: row.duration || undefined,
+  };
+}
+
+function transformBooking(row: any): Booking {
+  return {
+    id: row.id,
+    customerName: row.customer_name,
+    customerEmail: row.customer_email,
+    customerPhone: row.customer_phone || undefined,
+    location: row.location,
+    serviceId: row.service_id,
+    serviceName: row.service_name,
+    addOnIds: row.addon_ids || [],
+    addOnNames: row.addon_names || [],
+    date: row.date,
+    time: row.time,
+    duration: row.duration,
+    totalPrice: parseFloat(row.total_price),
+    vehicleSize: row.vehicle_size || undefined,
+    createdAt: row.created_at,
+  };
+}
+
+function transformCustomer(row: any): Customer {
+  return {
+    id: row.id,
+    name: row.name,
+    email: row.email,
+    phone: row.phone || undefined,
+    totalSpent: parseFloat(row.total_spent),
+    points: row.points,
+    createdAt: row.created_at,
+  };
+}
+
