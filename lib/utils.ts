@@ -49,4 +49,32 @@ export function hoursMinutesToMinutes(hours: number, minutes: number): number {
   return hours * 60 + minutes;
 }
 
+/**
+ * Safely parses a date string into a local Date object, avoiding UTC shifts.
+ *
+ * - Accepts both plain dates (`YYYY-MM-DD`) and full ISO strings.
+ * - Always interprets the year/month/day in the **local timezone**.
+ * - Uses noon to stay away from DST / timezone edges.
+ */
+export function parseLocalDateFromISO(dateString: string): Date {
+  if (!dateString) {
+    return new Date();
+  }
+
+  // If it's a full ISO string, just take the date part
+  const datePart = dateString.length > 10 ? dateString.slice(0, 10) : dateString;
+
+  const [yearStr, monthStr, dayStr] = datePart.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  if (!year || !month || !day) {
+    // Fallback – let the built-in parser handle unexpected formats
+    return new Date(dateString);
+  }
+
+  // Use noon to stay far from DST / timezone edges
+  return new Date(year, month - 1, day, 12, 0, 0, 0);
+}
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Booking } from '@/types';
-import { formatTimeToAMPM } from '@/lib/utils';
+import { formatTimeToAMPM, parseLocalDateFromISO } from '@/lib/utils';
 
 interface CalendarProps {
   bookings: Booking[];
@@ -510,11 +510,12 @@ export default function Calendar({ bookings, onDateClick }: CalendarProps) {
                   <p className="text-sm text-black mb-1">📞 {selectedBooking.customerPhone}</p>
                 )}
                 <p className="text-sm text-black mt-3">
-                  <strong>Date:</strong> {new Date(selectedBooking.date).toLocaleDateString('en-US', {
+                  <strong>Date:</strong>{' '}
+                  {parseLocalDateFromISO(selectedBooking.date).toLocaleDateString('en-US', {
                     weekday: 'long',
                     year: 'numeric',
                     month: 'long',
-                    day: 'numeric'
+                    day: 'numeric',
                   })}
                 </p>
                 <p className="text-sm text-black">
@@ -562,11 +563,12 @@ export default function Calendar({ bookings, onDateClick }: CalendarProps) {
       {selectedDate && !selectedBooking && (
         <div className="mt-6 border-t-2 border-gray-300 pt-6">
           <h3 className="font-bold text-xl text-black mb-4">
-            Bookings for {new Date(selectedDate).toLocaleDateString('en-US', {
+            Bookings for{' '}
+            {parseLocalDateFromISO(selectedDate).toLocaleDateString('en-US', {
               weekday: 'long',
               year: 'numeric',
               month: 'long',
-              day: 'numeric'
+              day: 'numeric',
             })}
           </h3>
           {sortedSelectedDateBookings.length > 0 ? (

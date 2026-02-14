@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Service, AddOn } from '@/types';
 import LocationMap from '@/components/LocationMap';
 import DatePicker from '@/components/DatePicker';
-import { formatTimeToAMPM, formatDuration } from '@/lib/utils';
+import { formatTimeToAMPM, formatDuration, parseLocalDateFromISO } from '@/lib/utils';
 
 export default function BookPage() {
   const [services, setServices] = useState<Service[]>([]);
@@ -73,7 +73,7 @@ export default function BookPage() {
           // Filter out slots that are less than 24 hours away
           const now = new Date();
           const minBookingTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
-          const selectedDateObj = new Date(selectedDate + 'T00:00:00');
+          const selectedDateObj = parseLocalDateFromISO(selectedDate);
           const isToday = selectedDateObj.toDateString() === now.toDateString();
           
           const filteredSlots = slots.filter((slot: string) => {
@@ -360,34 +360,34 @@ export default function BookPage() {
         {/* Step Indicator */}
         <div className="mb-8">
           <div className="flex items-center justify-center space-x-4">
-            <div className={`flex items-center ${step >= 1 ? 'text-black' : 'text-black'}`}>
+            <div className="flex items-center">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm ${step >= 1 ? 'bg-sky-400/80 text-black' : 'bg-white/30 text-black'}`}>
                 1
               </div>
-              <span className="ml-2 font-medium">Service</span>
+              <span className="ml-2 font-medium !text-white">Service</span>
             </div>
             <div className={`w-16 h-1 backdrop-blur-sm ${step >= 2 ? 'bg-sky-400/80' : 'bg-white/30'}`} />
-            <div className={`flex items-center ${step >= 2 ? 'text-black' : 'text-black'}`}>
+            <div className="flex items-center">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm ${step >= 2 ? 'bg-sky-400/80 text-black' : 'bg-white/30 text-black'}`}>
                 2
               </div>
-              <span className="ml-2 font-medium">Time</span>
+              <span className="ml-2 font-medium !text-white">Time</span>
             </div>
             <div className={`w-16 h-1 backdrop-blur-sm ${step >= 3 ? 'bg-sky-400/80' : 'bg-white/30'}`} />
-            <div className={`flex items-center ${step >= 3 ? 'text-black' : 'text-black'}`}>
+            <div className="flex items-center">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm ${step >= 3 ? 'bg-sky-400/80 text-black' : 'bg-white/30 text-black'}`}>
                 3
               </div>
-              <span className="ml-2 font-medium">Details</span>
+              <span className="ml-2 font-medium !text-white">Details</span>
             </div>
             {step >= 4 && (
               <>
                 <div className={`w-16 h-1 backdrop-blur-sm ${step >= 4 ? 'bg-sky-400/80' : 'bg-white/30'}`} />
-                <div className={`flex items-center ${step >= 4 ? 'text-black' : 'text-black'}`}>
+                <div className="flex items-center">
                   <div className={`w-8 h-8 rounded-full flex items-center justify-center backdrop-blur-sm ${step >= 4 ? 'bg-sky-400/80 text-black' : 'bg-white/30 text-black'}`}>
                     ✓
                   </div>
-                  <span className="ml-2 font-medium">Confirmed</span>
+                  <span className="ml-2 font-medium !text-white">Confirmed</span>
                 </div>
               </>
             )}
@@ -998,12 +998,14 @@ export default function BookPage() {
                 )}
                 <div className="flex justify-between">
                   <span className="font-medium">Date:</span>
-                  <span>{new Date(confirmedBooking.date).toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                  })}</span>
+                  <span>
+                    {parseLocalDateFromISO(confirmedBooking.date).toLocaleDateString('en-US', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                    })}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-medium">Time:</span>

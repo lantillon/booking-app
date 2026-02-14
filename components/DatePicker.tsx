@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { parseLocalDateFromISO } from '@/lib/utils';
 
 interface DatePickerProps {
   selectedDate: string;
@@ -10,7 +11,8 @@ interface DatePickerProps {
 }
 
 export default function DatePicker({ selectedDate, onDateSelect, minDate, maxDate }: DatePickerProps) {
-  const [currentMonth, setCurrentMonth] = useState(new Date(selectedDate ? new Date(selectedDate) : new Date()));
+  const initialDate = selectedDate ? parseLocalDateFromISO(selectedDate) : new Date();
+  const [currentMonth, setCurrentMonth] = useState(initialDate);
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -154,17 +156,19 @@ export default function DatePicker({ selectedDate, onDateSelect, minDate, maxDat
       </div>
 
       {/* Selected Date Display */}
-      {selectedDate && (
-        <div className="mt-2 pt-2 border-t border-gray-200">
-          <p className="text-xs text-black">
-            <strong>Selected:</strong> {new Date(selectedDate).toLocaleDateString('en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric'
-            })}
-          </p>
-        </div>
-      )}
+      {selectedDate && (() => {
+        // Format date directly from YYYY-MM-DD string to avoid timezone issues
+        const [year, month, day] = selectedDate.split('-').map(Number);
+        const shortMonthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const formatted = `${shortMonthNames[month - 1]} ${day}, ${year}`;
+        return (
+          <div className="mt-2 pt-2 border-t border-gray-200">
+            <p className="text-xs text-black">
+              <strong>Selected:</strong> {formatted}
+            </p>
+          </div>
+        );
+      })()}
     </div>
   );
 }
