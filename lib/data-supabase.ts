@@ -1,6 +1,6 @@
 // Supabase helper functions for data operations
 import { supabase, isSupabaseConfigured } from './supabase';
-import { Service, AddOn, Booking, Availability, Customer } from '@/types';
+import { Service, AddOn, Booking, Availability, Customer, Feedback } from '@/types';
 
 const defaultAvailability: Availability = {
   workingHours: {
@@ -13,7 +13,7 @@ const defaultAvailability: Availability = {
     sunday: { start: '09:00', end: '17:00', enabled: false },
   },
   slotDuration: 30,
-  paddingTime: 15,
+  paddingTime: 30,
 };
 
 export async function getServicesSupabase(): Promise<Service[]> {
@@ -159,6 +159,7 @@ export async function addBookingSupabase(booking: Booking): Promise<void> {
     duration: booking.duration,
     total_price: booking.totalPrice,
     vehicle_size: booking.vehicleSize || null,
+    zip_code: booking.zipCode || null,
   });
   if (error) throw error;
 }
@@ -332,6 +333,7 @@ function transformBooking(row: any): Booking {
     duration: row.duration,
     totalPrice: parseFloat(row.total_price),
     vehicleSize: row.vehicle_size || undefined,
+    zipCode: row.zip_code || undefined,
     createdAt: row.created_at,
   };
 }
@@ -348,3 +350,34 @@ function transformCustomer(row: any): Customer {
   };
 }
 
+function transformFeedback(row: any): Feedback {
+  return {
+    id: row.id,
+    customerName: row.customer_name,
+    customerEmail: row.customer_email,
+    bookingId: row.booking_id || undefined,
+    rating: row.rating || undefined,
+    comment: row.comment,
+    createdAt: row.created_at,
+  };
+}
+
+export async function getFeedbacksSupabase(): Promise<Feedback[]> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { data, error } = await supabase.from('feedback').select('*').order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map(transformFeedback);
+}
+
+export async function addFeedbackSupabase(feedback: Feedback): Promise<void> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const { error } = await supabase.from('feedback').insert({
+    id: feedback.id,
+    customer_name: feedback.customerName,
+    customer_email: feedback.customerEmail,
+    booking_id: feedback.bookingId || null,
+    rating: feedback.rating || null,
+    comment: feedback.comment,
+  });
+  if (error) throw error;
+}

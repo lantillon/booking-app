@@ -39,6 +39,7 @@ export interface Booking {
   duration: number; // total duration in minutes
   totalPrice: number;
   vehicleSize?: string; // Optional: 'sedan', 'suv', 'truck', 'van', 'largeTruck'
+  zipCode?: string; // Customer's zip code for location-based scheduling
   createdAt: string;
 }
 
@@ -66,3 +67,12 @@ export interface Customer {
   createdAt: string;
 }
 
+export interface Feedback {
+  id: string;
+  customerName: string;
+  customerEmail: string;
+  bookingId?: string; // optional: link to booking if available
+  rating?: number; // optional: 1-5 star rating
+  comment: string;
+  createdAt: string;
+}

@@ -214,22 +214,34 @@ export async function POST(request: NextRequest) {
     // Process each entry (with message deduplication)
     for (const entry of body.entry || []) {
       for (const event of entry.messaging || []) {
+        const messageId = event.message?.mid;
+        if (messageId && processedMessages.has(messageId)) {
+          console.log('Duplicate message ignored:', messageId);
+          continue;
+        }
+        if (messageId) {
+          processedMessages.add(messageId);
+          // Clean up old message IDs (keep last 100)
+          if (processedMessages.size > 100) {
+            const arr = Array.from(processedMessages);
+            processedMessages.clear();
+            arr.slice(-50).forEach(id => processedMessages.add(id));
+          }
+        }
+
+        // Handle text messages
         if (event.message?.text) {
-          const messageId = event.message.mid;
-          if (messageId && processedMessages.has(messageId)) {
-            console.log('Duplicate message ignored:', messageId);
-            continue;
-          }
-          if (messageId) {
-            processedMessages.add(messageId);
-            // Clean up old message IDs (keep last 100)
-            if (processedMessages.size > 100) {
-              const arr = Array.from(processedMessages);
-              processedMessages.clear();
-              arr.slice(-50).forEach(id => processedMessages.add(id));
-            }
-          }
           await handleMessage(event.sender.id, event.message.text);
+        }
+        // Handle image attachments
+        else if (event.message?.attachments) {
+          const imageAttachment = event.message.attachments.find(
+            (att: any) => att.type === 'image'
+          );
+          if (imageAttachment?.payload?.url) {
+            const text = event.message.text || 'Customer sent an image';
+            await handleMessage(event.sender.id, text, imageAttachment.payload.url);
+          }
         }
       }
     }
@@ -241,14 +253,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
-async function handleMessage(senderId: string, messageText: string) {
+async function handleMessage(senderId: string, messageText: string, imageUrl?: string) {
   try {
     // Get or create conversation state from Supabase
     let state = await getConversationState(senderId);
     state.lastActivity = Date.now();
 
-    // Add user message to history
-    state.history.push({ role: 'user', content: messageText });
+    // Add user message to history (note if image was included)
+    const historyContent = imageUrl ? `${messageText} [Customer sent an image]` : messageText;
+    state.history.push({ role: 'user', content: historyContent });
     if (state.history.length > 20) {
       state.history = state.history.slice(-20);
     }
@@ -262,7 +275,7 @@ async function handleMessage(senderId: string, messageText: string) {
     ]);
 
     // Build context for AI
-    const response = await generateAIResponse(state, messageText, services, addons, availability, bookings);
+    const response = await generateAIResponse(state, messageText, services, addons, availability, bookings, imageUrl);
 
     // Update state with AI response
     if (response.extracted) {
@@ -346,7 +359,8 @@ async function generateAIResponse(
   services: any[],
   addons: any[],
   availability: any,
-  bookings: any[]
+  bookings: any[],
+  imageUrl?: string
 ) {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (!anthropicKey) {
@@ -465,10 +479,15 @@ async function generateAIResponse(
 
   const systemPrompt = `You are the information assistant for Detail Labs, a premium mobile car detailing business. You chat with customers via Instagram DM.
 
-## TODAY'S DATE
-Today is ${todayDay}, ${todayStr} (current time: ${today.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })})
-Tomorrow is ${tomorrowDay}, ${tomorrowStr}
-When a customer says "tomorrow", "this Saturday", "next week", etc., match it to the correct date from the LIVE AVAILABILITY section.
+## TODAY'S DATE (USE THIS AS YOUR SOURCE OF TRUTH)
+**TODAY: ${todayDay}, ${todayStr}** (current time: ${today.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })})
+**TOMORROW: ${tomorrowDay}, ${tomorrowStr}**
+
+CRITICAL: Always use the day-date pairs from the LIVE AVAILABILITY section below. Each line shows the EXACT day name with its corresponding date (e.g., "Monday 2026-03-10").
+- When customer says "Monday" → find the next Monday in LIVE AVAILABILITY and use that exact date
+- When customer says "this weekend" → find Saturday/Sunday in LIVE AVAILABILITY
+- When customer says "next week" → look at dates 7+ days from today
+- NEVER guess or calculate dates yourself — ONLY use the day-date pairs shown in LIVE AVAILABILITY
 
 ## YOUR ROLE
 You are primarily an INFORMATION ASSISTANT. Your default mode is answering questions about services, pricing, availability, and what we do. Do NOT try to start the booking process unless the customer explicitly asks to book, schedule, or make an appointment.
@@ -481,16 +500,22 @@ You are primarily an INFORMATION ASSISTANT. Your default mode is answering quest
 - Mobile detailing = we come to the customer's location
 - If the customer writes in Spanish, respond entirely in Spanish. Match the customer's language automatically.
 
-## ABOUT CLASSY DETAIL
+## ABOUT DETAIL LABS
 We are a premium mobile car detailing business. We come to the customer's location with all professional-grade equipment and products. Our main service is a complete Interior Detail.
 
 ## INTERIOR DETAIL SERVICE
 - Complete interior deep clean
 - Includes: vacuum, wipe down of all surfaces, carpet/cloth spot treatment, upholstery cleaning, steam cleaning, floor mat cleaning, headliner cleaning, interior window cleaning, leather conditioning, and door/trunk jamb cleaning
 - Pricing varies by vehicle size — always ask what they drive before quoting
-- Duration: approximately 2 hours
+- **Duration: 2 hours** (blocks 2 hours on the calendar + 30 min buffer after)
 - We come to YOU
 - Payment: We accept cash, credit card, Cash App, and Zelle
+
+## SCHEDULING RULES
+- Each appointment blocks its full service duration on the calendar (e.g., Interior Detail = 2 hours)
+- Add-ons add to the total duration (e.g., Extraction adds 30-45 min)
+- There is a **30-minute buffer** between all appointments for travel/setup
+- Always tell customers how long their service will take
 
 ## PAINT CORRECTION SERVICES (QUOTE-BASED)
 Paint correction removes swirls, scratches, oxidation, and imperfections to restore your paint's clarity and shine.
@@ -505,19 +530,19 @@ Paint correction removes swirls, scratches, oxidation, and imperfections to rest
 **COMPETITIVE EL PASO PRICING (adjust based on vehicle size and condition):**
 
 SINGLE-STAGE POLISH (light swirls, minor imperfections):
-- Sedan/Coupe: $150-$250
-- SUV/Crossover: $200-$300
-- Truck/Large SUV: $250-$350
+- Sedan/Coupe: $350-$450
+- SUV/Crossover: $400-$500
+- Truck/Large SUV: $450-$550
 
 TWO-STAGE CORRECTION (moderate swirls, scratches, oxidation):
-- Sedan/Coupe: $300-$450
-- SUV/Crossover: $400-$550
-- Truck/Large SUV: $500-$650
+- Sedan/Coupe: $500-$650
+- SUV/Crossover: $600-$750
+- Truck/Large SUV: $700-$850
 
 MULTI-STAGE/HEAVY CORRECTION (severe defects, neglected paint):
-- Sedan/Coupe: $500-$700
-- SUV/Crossover: $650-$850
-- Truck/Large SUV: $800-$1000+
+- Sedan/Coupe: $700-$900
+- SUV/Crossover: $850-$1050
+- Truck/Large SUV: $1000-$1200+
 
 **FREE INTERIOR DETAIL INCLUDED!** Every paint correction service includes a complimentary full interior detail (normally $150-$200 value). Make sure to mention this as a selling point!
 
@@ -534,18 +559,18 @@ Ceramic coating provides long-lasting protection after paint correction. Always 
 **CERAMIC COATING PRICING (applied after paint correction):**
 
 ENTRY-LEVEL (1-2 year protection):
-- Sedan/Coupe: $200-$350
-- SUV/Truck: $300-$450
+- Sedan/Coupe: $400-$550
+- SUV/Truck: $500-$650
 Best for: customers on a budget, lease vehicles, daily drivers wanting basic protection
 
 MID-TIER (3-5 year protection):
-- Sedan/Coupe: $450-$650
-- SUV/Truck: $550-$800
+- Sedan/Coupe: $650-$850
+- SUV/Truck: $750-$1000
 Best for: most customers, great balance of protection and value
 
 PROFESSIONAL GRADE (5-7+ year protection):
-- Sedan/Coupe: $800-$1200
-- SUV/Truck: $1000-$1500
+- Sedan/Coupe: $1000-$1400
+- SUV/Truck: $1200-$1700
 Best for: enthusiasts, show cars, customers wanting maximum protection
 
 **CERAMIC COATING SALES TIPS:**
@@ -584,7 +609,9 @@ ${locationInfo}
 ## BLOCKED DATES (DO NOT BOOK)
 February 10-14, 2026 are BLOCKED. Do not offer any appointments on these dates. If customer asks for these dates, say you're unavailable and offer the next available day.
 
-## LIVE AVAILABILITY (next 14 days — ONLY show times listed here)
+## LIVE AVAILABILITY (next 14 days — AUTHORITATIVE DAY-DATE MAPPING)
+Format: [DayName] [YYYY-MM-DD]: [available times]
+USE THESE DAY-DATE PAIRS EXACTLY when customer mentions a day of the week:
 ${availableSlotsText.join('\n')}
 
 ## WHEN CUSTOMER ASKS ABOUT AVAILABILITY
@@ -644,6 +671,29 @@ How to offer:
 - "Feel free to call or text us at 915-270-2659"
 - Don't push phone contact unnecessarily — only when genuinely helpful
 
+## WHEN CUSTOMER SENDS AN IMAGE
+If a customer sends a photo, analyze it and respond helpfully:
+
+**Interior photos:**
+- Assess the condition (light cleaning needed, heavy staining, pet hair, etc.)
+- Recommend appropriate services and add-ons
+- Give a price estimate based on what you see
+- **IMPORTANT: If you see stains on CLOTH seats, the Extraction add-on is REQUIRED** - explain that our standard interior detail won't fully remove stains from fabric, and extraction is needed to deep clean and lift the stains out
+- Example for stained cloth seats: "I can see some staining on your cloth seats. For this, you'll need our Interior Detail plus the Extraction add-on - that's what pulls the stains out of the fabric. Without extraction, the stains won't fully come out. Total would be around $X."
+- Example for leather/no stains: "Your interior looks like it just needs a standard deep clean. Our Interior Detail ($X) will have it looking great!"
+
+**Exterior/paint photos:**
+- Look for swirl marks, scratches, oxidation, water spots
+- Assess severity (light, moderate, heavy)
+- Recommend appropriate paint correction level
+- Mention the free interior detail included
+- Offer ceramic coating if paint correction is needed
+- Example: "I can see moderate swirl marks and some light scratches. This would benefit from our two-stage paint correction ($X-X depending on vehicle size), which includes a FREE interior detail. Want me to give you an exact quote?"
+
+**Other photos:**
+- Respond appropriately based on context
+- If unclear, ask what they'd like help with
+
 ## CRITICAL RULES
 - Default to INFO mode — answer questions, be helpful, don't push booking
 - ONLY use service IDs, names, and prices from the list above
@@ -678,23 +728,59 @@ How to offer:
 }`;
 
   try {
+    // Build messages array, handling images for the current message
+    let messages: any[] = state.history
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .reduce((acc: { role: string; content: string }[], m) => {
+        // Prevent consecutive messages with the same role (Claude API requirement)
+        if (acc.length > 0 && acc[acc.length - 1].role === m.role) {
+          acc[acc.length - 1].content += '\n' + m.content;
+        } else {
+          acc.push({ role: m.role, content: m.content });
+        }
+        return acc;
+      }, [])
+      .filter((m, i) => !(i === 0 && m.role === 'assistant'))
+      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+    // If there's an image, modify the last user message to include it
+    if (imageUrl && messages.length > 0) {
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage.role === 'user') {
+        try {
+          // Fetch image and convert to base64
+          const imageResponse = await fetch(imageUrl);
+          const arrayBuffer = await imageResponse.arrayBuffer();
+          const base64 = Buffer.from(arrayBuffer).toString('base64');
+          const contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
+
+          // Replace text content with multimodal content
+          lastMessage.content = [
+            {
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: contentType,
+                data: base64,
+              },
+            },
+            {
+              type: 'text',
+              text: userMessage || 'Customer sent this image. Please analyze it and respond appropriately based on the context of a mobile car detailing business. If it shows a car interior, assess the condition and recommend services. If it shows paint/exterior, assess for paint correction needs.',
+            },
+          ];
+        } catch (imgError) {
+          console.error('Error fetching image:', imgError);
+          // Fall back to text-only if image fetch fails
+        }
+      }
+    }
+
     const response = await client.messages.create({
       model: 'claude-sonnet-4-20250514',
       max_tokens: 800,
       system: systemPrompt,
-      messages: state.history
-        .filter(m => m.role === 'user' || m.role === 'assistant')
-        .reduce((acc: { role: string; content: string }[], m) => {
-          // Prevent consecutive messages with the same role (Claude API requirement)
-          if (acc.length > 0 && acc[acc.length - 1].role === m.role) {
-            acc[acc.length - 1].content += '\n' + m.content;
-          } else {
-            acc.push({ role: m.role, content: m.content });
-          }
-          return acc;
-        }, [])
-        .filter((m, i) => !(i === 0 && m.role === 'assistant'))
-        .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      messages,
     });
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';

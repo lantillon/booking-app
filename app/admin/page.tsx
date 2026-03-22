@@ -2,16 +2,95 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Service, AddOn, Booking, Availability, Customer } from '@/types';
+import { Service, AddOn, Booking, Availability, Customer, Feedback } from '@/types';
 import Calendar from '@/components/Calendar';
 import { formatTimeToAMPM, formatDuration } from '@/lib/utils';
+import RouteMap from '@/components/RouteMap';
+
+// Zip code coordinates shared with AI booking logic (El Paso area)
+const ZIP_COORDS: Record<string, { lat: number; lng: number }> = {
+  // West side (Mondays only)
+  '79835': { lat: 31.8084, lng: -106.5811 }, // Sunland Park
+  '79912': { lat: 31.8406, lng: -106.5678 }, // West El Paso
+  '79922': { lat: 31.8989, lng: -106.5700 }, // Canutillo area
+  '79932': { lat: 31.8639, lng: -106.6228 }, // Westway
+  '88063': { lat: 31.8300, lng: -106.6000 }, // Sunland Park NM
+  // East/Central (any day)
+  '79821': { lat: 31.3275, lng: -105.9367 }, // Anthony
+  '79836': { lat: 31.5264, lng: -106.0828 }, // Clint
+  '79838': { lat: 31.4869, lng: -106.1697 }, // Fabens
+  '79849': { lat: 31.2097, lng: -105.7575 }, // San Elizario
+  '79901': { lat: 31.7587, lng: -106.4869 }, // Downtown
+  '79902': { lat: 31.7700, lng: -106.5050 }, // Kern Place
+  '79903': { lat: 31.7850, lng: -106.4400 }, // Government Hill
+  '79904': { lat: 31.8100, lng: -106.4450 }, // Fort Bliss
+  '79905': { lat: 31.7550, lng: -106.4350 }, // South Central
+  '79906': { lat: 31.8150, lng: -106.4250 }, // Fort Bliss
+  '79907': { lat: 31.7000, lng: -106.3550 }, // Ysleta
+  '79908': { lat: 31.8450, lng: -106.3800 }, // Fort Bliss
+  '79911': { lat: 31.8800, lng: -106.5350 }, // West El Paso
+  '79915': { lat: 31.7200, lng: -106.3200 }, // Ysleta
+  '79924': { lat: 31.8800, lng: -106.4250 }, // Northeast
+  '79925': { lat: 31.7850, lng: -106.3650 }, // East Central
+  '79927': { lat: 31.6600, lng: -106.2700 }, // Socorro
+  '79928': { lat: 31.6700, lng: -106.1850 }, // Horizon City (HOME BASE)
+  '79930': { lat: 31.8150, lng: -106.4650 }, // Central
+  '79934': { lat: 31.9150, lng: -106.4050 }, // Northeast
+  '79935': { lat: 31.7700, lng: -106.3350 }, // East
+  '79936': { lat: 31.7650, lng: -106.3000 }, // East
+  '79938': { lat: 31.8000, lng: -106.2300 }, // Far East/Horizon
+};
+
+const HOME_ZIP = '79928';
+const AVERAGE_SPEED_MPH = 30; // Simple estimate for ETA calculations
+
+function getDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 3959; // Earth's radius in miles
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) *
+      Math.cos(lat2 * Math.PI / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function estimateDriveMinutes(distanceMiles: number): number {
+  if (!distanceMiles || !Number.isFinite(distanceMiles)) return 0;
+  return Math.max(1, Math.round((distanceMiles / AVERAGE_SPEED_MPH) * 60));
+}
+
+function getZipForBooking(booking: Booking): string | undefined {
+  // Prefer explicit zipCode on the booking if it's in our map
+  if (booking.zipCode && ZIP_COORDS[booking.zipCode]) {
+    return booking.zipCode;
+  }
+
+  // Fallback: try to extract a 5-digit ZIP from the location/address string
+  if (booking.location) {
+    const match = booking.location.match(/\b(\d{5})\b/);
+    if (match && ZIP_COORDS[match[1]]) {
+      return match[1];
+    }
+  }
+
+  return undefined;
+}
 
 export default function AdminPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [addOns, setAddOns] = useState<AddOn[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [activeTab, setActiveTab] = useState<'services' | 'addons' | 'bookings' | 'availability' | 'calendar' | 'customers'>('services');
+  const [feedbacks, setFeedbacks] = useState<Feedback[]>([]);
+  const [selectedRouteDate, setSelectedRouteDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
+  const [selectedRouteBookings, setSelectedRouteBookings] = useState<Booking[]>([]);
+  const [activeTab, setActiveTab] = useState<
+    'services' | 'addons' | 'bookings' | 'availability' | 'calendar' | 'customers' | 'emergency' | 'feedback'
+  >('services');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
@@ -28,16 +107,18 @@ export default function AdminPage() {
   }, []);
 
   const fetchData = async () => {
-    const [servicesRes, addOnsRes, bookingsRes, customersRes] = await Promise.all([
+    const [servicesRes, addOnsRes, bookingsRes, customersRes, feedbacksRes] = await Promise.all([
       fetch('/api/services'),
       fetch('/api/addons'),
       fetch('/api/bookings'),
       fetch('/api/customers'),
+      fetch('/api/feedback'),
     ]);
     setServices(await servicesRes.json());
     setAddOns(await addOnsRes.json());
     setBookings(await bookingsRes.json());
     setCustomers(await customersRes.json());
+    setFeedbacks(await feedbacksRes.json());
   };
 
   const handleDeleteService = async (id: string) => {
@@ -61,11 +142,30 @@ export default function AdminPage() {
     }
   };
 
+  const handleResendConfirmation = async (id: string) => {
+    try {
+      const response = await fetch(`/api/bookings/${id}/resend`, { method: 'POST' });
+      const result = await response.json();
+      if (result.success) {
+        alert('Confirmation email sent successfully!');
+      } else {
+        alert(`Failed to send email: ${result.message || result.error}`);
+      }
+    } catch (error: any) {
+      alert(`Error: ${error.message}`);
+    }
+  };
+
   const handleLogout = () => {
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem('adminAuthenticated');
       window.location.href = '/admin/login';
     }
+  };
+
+  const handleCalendarDateClick = (date: string, dateBookings: Booking[]) => {
+    setSelectedRouteDate(date);
+    setSelectedRouteBookings(dateBookings);
   };
 
   if (!isAuthenticated) {
@@ -111,7 +211,7 @@ export default function AdminPage() {
 
         <div className="border-b border-gray-200 mb-4 sm:mb-6">
           <nav className="-mb-px grid grid-cols-3 sm:flex sm:space-x-8 gap-0 sm:gap-0">
-            {(['services', 'addons', 'bookings', 'calendar', 'availability', 'customers'] as const).map((tab) => (
+            {(['services', 'addons', 'bookings', 'calendar', 'availability', 'customers', 'emergency', 'feedback'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -266,12 +366,20 @@ export default function AdminPage() {
                           <strong>Duration:</strong> {formatDuration(booking.duration)} • <strong>Total:</strong> ${booking.totalPrice}
                         </p>
                       </div>
-                      <button
-                        onClick={() => handleDeleteBooking(booking.id)}
-                        className="px-3 py-1 text-xs sm:text-sm bg-red-100 text-black rounded hover:bg-red-200 w-full sm:w-auto"
-                      >
-                        Delete
-                      </button>
+                      <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                        <button
+                          onClick={() => handleResendConfirmation(booking.id)}
+                          className="px-3 py-1 text-xs sm:text-sm bg-blue-100 text-black rounded hover:bg-blue-200 w-full sm:w-auto"
+                        >
+                          Resend Email
+                        </button>
+                        <button
+                          onClick={() => handleDeleteBooking(booking.id)}
+                          className="px-3 py-1 text-xs sm:text-sm bg-red-100 text-black rounded hover:bg-red-200 w-full sm:w-auto"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </li>
                 ))}
@@ -286,17 +394,247 @@ export default function AdminPage() {
         )}
 
         {activeTab === 'calendar' && (
-          <div className="overflow-x-auto">
-            <h2 className="text-xl sm:text-2xl font-bold text-black mb-4">Bookings Calendar</h2>
-            <div className="min-w-full">
-              <Calendar bookings={bookings} />
+          <div className="space-y-6">
+            <div className="overflow-x-auto">
+              <h2 className="text-xl sm:text-2xl font-bold text-black mb-4">Bookings Calendar</h2>
+              <div className="min-w-full">
+                <Calendar bookings={bookings} onDateClick={handleCalendarDateClick} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div>
+                <h3 className="text-lg font-semibold text-black mb-3">
+                  Daily Route –{' '}
+                  {selectedRouteDate
+                    ? new Date(selectedRouteDate).toLocaleDateString('en-US', {
+                        weekday: 'long',
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })
+                    : 'Select a date'}
+                </h3>
+                {selectedRouteBookings.length === 0 ? (
+                  <p className="text-sm text-black">
+                    Click a day on the calendar to see that day&apos;s route and drive times between appointments.
+                  </p>
+                ) : (
+                  (() => {
+                    const ordered = selectedRouteBookings.slice().sort((a, b) => a.time.localeCompare(b.time));
+
+                    type RouteLeg = {
+                      booking: Booking;
+                      index: number;
+                      fromLabel: string;
+                      distanceMiles: number | null;
+                      driveMinutes: number | null;
+                    };
+
+                    const legs: RouteLeg[] = [];
+
+                    ordered.forEach((booking, index) => {
+                      const prev = index === 0 ? null : ordered[index - 1];
+                      const fromZip = index === 0 ? HOME_ZIP : (prev && getZipForBooking(prev)) || undefined;
+                      const fromLabel = index === 0 ? `Home base (${HOME_ZIP})` : prev?.customerName || 'Previous stop';
+                      const toZip = getZipForBooking(booking);
+
+                      let distanceMiles: number | null = null;
+                      let driveMinutes: number | null = null;
+
+                      if (fromZip && toZip && ZIP_COORDS[fromZip] && ZIP_COORDS[toZip]) {
+                        const fromCoords = ZIP_COORDS[fromZip];
+                        const toCoords = ZIP_COORDS[toZip];
+                        distanceMiles = getDistanceMiles(fromCoords.lat, fromCoords.lng, toCoords.lat, toCoords.lng);
+                        driveMinutes = estimateDriveMinutes(distanceMiles);
+                      }
+
+                      legs.push({
+                        booking,
+                        index,
+                        fromLabel,
+                        distanceMiles,
+                        driveMinutes,
+                      });
+                    });
+
+                    return (
+                      <div className="bg-white shadow rounded-lg divide-y divide-gray-200">
+                        {legs.map((leg) => (
+                          <div key={leg.booking.id} className="p-4 sm:p-5">
+                            <div className="flex justify-between items-start gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs text-gray-500 mb-1">Stop {leg.index + 1}</div>
+                                <h4 className="text-base sm:text-lg font-semibold text-black break-words">
+                                  {leg.booking.customerName}
+                                </h4>
+                                <p className="text-xs sm:text-sm text-black">
+                                  <strong>Time:</strong> {formatTimeToAMPM(leg.booking.time)} (
+                                  {formatDuration(leg.booking.duration)})
+                                </p>
+                                <p className="text-xs sm:text-sm text-black break-words">
+                                  <strong>Service:</strong> {leg.booking.serviceName}
+                                </p>
+                                <p className="text-xs sm:text-sm text-black break-words">
+                                  <strong>Location:</strong> {leg.booking.location || 'Not provided'}
+                                </p>
+                                {leg.booking.zipCode && (
+                                  <p className="text-xs sm:text-sm text-black">
+                                    <strong>ZIP:</strong> {leg.booking.zipCode}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="mt-3 text-xs sm:text-sm text-gray-700">
+                              <div className="font-medium mb-0.5">Drive from previous stop:</div>
+                              <div>
+                                <span className="font-semibold text-black">{leg.fromLabel}</span>
+                                {leg.distanceMiles !== null && leg.driveMinutes !== null ? (
+                                  <>
+                                    <span className="text-black"> → {leg.booking.customerName}</span>
+                                    <span className="text-black">
+                                      {' '}
+                                      • {leg.distanceMiles.toFixed(1)} miles • ETA drive {formatDuration(leg.driveMinutes)}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="text-black">
+                                    {' '}
+                                    • Drive estimate unavailable (missing or unsupported ZIP codes).
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()
+                )}
+              </div>
+
+              <div>
+                <h3 className="text-lg font-semibold text-black mb-3">Map Route</h3>
+                {(() => {
+                  if (!selectedRouteDate || selectedRouteBookings.length === 0) {
+                    return (
+                      <div className="w-full h-64 bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl flex items-center justify-center shadow-inner">
+                        <div className="text-black font-medium text-sm">
+                          Select a day with bookings on the calendar to see the route map.
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  const ordered = selectedRouteBookings.slice().sort((a, b) => a.time.localeCompare(b.time));
+
+                  type RoutePoint = { label: string; coordinates: [number, number] };
+                  const points: RoutePoint[] = [];
+
+                  // Start at home base
+                  const homeCoords = ZIP_COORDS[HOME_ZIP];
+                  if (homeCoords) {
+                    points.push({ label: `Home base (${HOME_ZIP})`, coordinates: [homeCoords.lat, homeCoords.lng] });
+                  }
+
+                  ordered.forEach((booking) => {
+                    const zip = getZipForBooking(booking);
+                    if (!zip) return;
+                    const coords = ZIP_COORDS[zip];
+                    if (!coords) return;
+                    points.push({
+                      label: `${booking.customerName} (${zip})`,
+                      coordinates: [coords.lat, coords.lng],
+                    });
+                  });
+
+                  if (points.length < 2) {
+                    return (
+                      <div className="w-full h-64 bg-gradient-to-br from-gray-100 to-gray-200 rounded-xl flex items-center justify-center shadow-inner">
+                        <div className="text-black font-medium text-sm text-center px-4">
+                          Not enough ZIP data to draw a route map. Make sure bookings for this date have valid ZIP codes.
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return <RouteMap points={points} />;
+                })()}
+              </div>
             </div>
           </div>
         )}
 
+        {/* Route tab removed – route information is now shown in the Calendar tab */}
+
         {activeTab === 'availability' && (
           <div>
             <AvailabilitySettings />
+          </div>
+        )}
+
+        {activeTab === 'emergency' && (
+          <div>
+            <EmergencyBookingForm services={services} addOns={addOns} onBookingCreated={fetchData} />
+          </div>
+        )}
+
+        {activeTab === 'feedback' && (
+          <div>
+            <h2 className="text-xl sm:text-2xl font-bold text-black mb-4">Customer Feedback</h2>
+            <div className="bg-white shadow overflow-hidden sm:rounded-md">
+              <ul className="divide-y divide-gray-200">
+                {feedbacks.length > 0 ? (
+                  feedbacks.map((feedback) => (
+                    <li key={feedback.id} className="px-4 sm:px-6 py-4">
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <h3 className="text-base sm:text-lg font-medium text-black break-words">{feedback.customerName}</h3>
+                            <p className="text-xs sm:text-sm text-gray-600 break-words">{feedback.customerEmail}</p>
+                            {feedback.rating && (
+                              <div className="mt-1 flex items-center gap-1">
+                                <span className="text-xs text-gray-600">Rating:</span>
+                                <div className="flex">
+                                  {[1, 2, 3, 4, 5].map((star) => (
+                                    <span
+                                      key={star}
+                                      className={`text-sm ${feedback.rating && feedback.rating >= star ? 'text-yellow-400' : 'text-gray-300'}`}
+                                    >
+                                      ★
+                                    </span>
+                                  ))}
+                                </div>
+                                <span className="text-xs text-gray-600 ml-1">({feedback.rating}/5)</span>
+                              </div>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500 whitespace-nowrap">
+                            {new Date(feedback.createdAt).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })}
+                          </div>
+                        </div>
+                        <div className="mt-2">
+                          <p className="text-sm text-black break-words whitespace-pre-wrap">{feedback.comment}</p>
+                        </div>
+                        {feedback.bookingId && (
+                          <div className="mt-1">
+                            <span className="text-xs text-gray-600">Booking ID: {feedback.bookingId}</span>
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  ))
+                ) : (
+                  <li className="px-4 sm:px-6 py-4 text-center text-black text-sm sm:text-base">
+                    No feedback yet. Customer feedback will appear here.
+                  </li>
+                )}
+              </ul>
+            </div>
           </div>
         )}
 
@@ -524,6 +862,322 @@ function AvailabilitySettings() {
             Save Changes
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services: Service[]; addOns: AddOn[]; onBookingCreated: () => void }) {
+  const [selectedService, setSelectedService] = useState<Service | null>(null);
+  const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [selectedTime, setSelectedTime] = useState('');
+  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
+  const [customerName, setCustomerName] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerLocation, setCustomerLocation] = useState('');
+  const [selectedVehicleSize, setSelectedVehicleSize] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (selectedDate && selectedService) {
+      let totalDuration = selectedService.duration;
+      const selected = addOns.filter((a) => selectedAddOns.includes(a.id));
+      selected.forEach((addOn) => {
+        if (addOn.duration) totalDuration += addOn.duration;
+      });
+      
+      // For emergency bookings, get all available slots without 24-hour restriction
+      fetch(`/api/timeslots?date=${selectedDate}&duration=${totalDuration}&emergency=true`)
+        .then((res) => res.json())
+        .then((slots) => {
+          setAvailableSlots(slots);
+        })
+        .catch((err) => {
+          console.error('Error fetching time slots:', err);
+          setAvailableSlots([]);
+        });
+    } else {
+      setAvailableSlots([]);
+    }
+  }, [selectedDate, selectedService, selectedAddOns, addOns]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedService || !selectedDate || !selectedTime || !customerName || !customerEmail || !customerLocation) {
+      alert('Please fill in all required fields');
+      return;
+    }
+    
+    if (selectedService.useVehiclePricing && !selectedVehicleSize) {
+      alert('Please select a vehicle size');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('/api/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serviceId: selectedService.id,
+          addOnIds: selectedAddOns,
+          date: selectedDate,
+          time: selectedTime,
+          customerName,
+          customerEmail,
+          customerPhone,
+          location: customerLocation,
+          vehicleSize: selectedVehicleSize || undefined,
+          isEmergency: true, // Flag to bypass 24-hour restriction
+        }),
+      });
+
+      if (response.ok) {
+        alert('Emergency booking created successfully!');
+        // Reset form
+        setSelectedService(null);
+        setSelectedAddOns([]);
+        setSelectedDate('');
+        setSelectedTime('');
+        setCustomerName('');
+        setCustomerEmail('');
+        setCustomerPhone('');
+        setCustomerLocation('');
+        setSelectedVehicleSize('');
+        onBookingCreated();
+      } else {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        alert(`Error creating booking: ${errorData.error || 'Please try again'}`);
+      }
+    } catch (error) {
+      alert('Error creating booking. Please try again.');
+      console.error('Error:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const getTodayDate = () => {
+    return new Date().toISOString().split('T')[0];
+  };
+
+  const getMaxDate = () => {
+    const maxDate = new Date();
+    maxDate.setDate(maxDate.getDate() + 60);
+    return maxDate.toISOString().split('T')[0];
+  };
+
+  return (
+    <div>
+      <h2 className="text-xl sm:text-2xl font-bold text-black mb-4">Emergency Booking</h2>
+      <p className="text-sm text-gray-600 mb-4">
+        Create bookings without the 24-hour advance requirement. Use this for urgent appointments.
+      </p>
+      <div className="bg-white shadow rounded-lg p-4 sm:p-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-black mb-2">Service *</label>
+            <select
+              value={selectedService?.id || ''}
+              onChange={(e) => {
+                const service = services.find(s => s.id === e.target.value);
+                setSelectedService(service || null);
+                setSelectedVehicleSize('');
+              }}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              required
+            >
+              <option value="">Select a service</option>
+              {services.map((service) => (
+                <option key={service.id} value={service.id}>
+                  {service.name} - ${service.price.toFixed(2)} ({formatDuration(service.duration)})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedService?.useVehiclePricing && selectedService.vehiclePricing && (
+            <div>
+              <label className="block text-sm font-medium text-black mb-2">Vehicle Size *</label>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {selectedService.vehiclePricing.sedan !== undefined && (
+                  <label className="flex items-center justify-between p-3 border-2 rounded-lg cursor-pointer">
+                    <div className="flex items-center">
+                      <input
+                        type="radio"
+                        name="vehicleSize"
+                        value="sedan"
+                        checked={selectedVehicleSize === 'sedan'}
+                        onChange={(e) => setSelectedVehicleSize(e.target.value)}
+                        className="mr-2"
+                        required
+                      />
+                      <span className="font-medium text-black">Sedan</span>
+                    </div>
+                    <span className="text-black font-semibold">${selectedService.vehiclePricing.sedan.toFixed(2)}</span>
+                  </label>
+                )}
+                {(selectedService.vehiclePricing.suv !== undefined || selectedService.vehiclePricing.truck !== undefined) && (
+                  <label className="flex items-center justify-between p-3 border-2 rounded-lg cursor-pointer">
+                    <div className="flex items-center">
+                      <input
+                        type="radio"
+                        name="vehicleSize"
+                        value="suv"
+                        checked={selectedVehicleSize === 'suv' || selectedVehicleSize === 'truck'}
+                        onChange={(e) => setSelectedVehicleSize(e.target.value)}
+                        className="mr-2"
+                        required
+                      />
+                      <span className="font-medium text-black">SUV/Truck</span>
+                    </div>
+                    <span className="text-black font-semibold">
+                      ${((selectedService.vehiclePricing.suv || selectedService.vehiclePricing.truck) as number).toFixed(2)}
+                    </span>
+                  </label>
+                )}
+                {(selectedService.vehiclePricing.largeSuv !== undefined || selectedService.vehiclePricing.largeTruck !== undefined) && (
+                  <label className="flex items-center justify-between p-3 border-2 rounded-lg cursor-pointer">
+                    <div className="flex items-center">
+                      <input
+                        type="radio"
+                        name="vehicleSize"
+                        value="largeSuv"
+                        checked={selectedVehicleSize === 'largeSuv' || selectedVehicleSize === 'largeTruck'}
+                        onChange={(e) => setSelectedVehicleSize(e.target.value)}
+                        className="mr-2"
+                        required
+                      />
+                      <span className="font-medium text-black">Large SUV/Lifted Truck</span>
+                    </div>
+                    <span className="text-black font-semibold">
+                      ${((selectedService.vehiclePricing.largeSuv || selectedService.vehiclePricing.largeTruck) as number).toFixed(2)}
+                    </span>
+                  </label>
+                )}
+              </div>
+            </div>
+          )}
+
+          {selectedService && (
+            <div>
+              <label className="block text-sm font-medium text-black mb-2">Add-ons</label>
+              <div className="space-y-2">
+                {addOns.filter(a => !selectedService.addOnIds || selectedService.addOnIds.includes(a.id)).map((addOn) => (
+                  <label key={addOn.id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedAddOns.includes(addOn.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedAddOns([...selectedAddOns, addOn.id]);
+                        } else {
+                          setSelectedAddOns(selectedAddOns.filter(id => id !== addOn.id));
+                        }
+                      }}
+                    />
+                    <span className="text-black">{addOn.name} (+${addOn.price.toFixed(2)})</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-black mb-2">Date *</label>
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => {
+                setSelectedDate(e.target.value);
+                setSelectedTime('');
+              }}
+              min={getTodayDate()}
+              max={getMaxDate()}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              required
+            />
+          </div>
+
+          {selectedDate && (
+            <div>
+              <label className="block text-sm font-medium text-black mb-2">Time *</label>
+              {availableSlots.length > 0 ? (
+                <div className="grid grid-cols-4 gap-2">
+                  {availableSlots.map((slot) => (
+                    <button
+                      key={slot}
+                      type="button"
+                      onClick={() => setSelectedTime(slot)}
+                      className={`px-4 py-2 rounded-md border ${
+                        selectedTime === slot
+                          ? 'bg-sky-400 text-black border-sky-400'
+                          : 'bg-white text-black border-gray-300 hover:border-indigo-500'
+                      }`}
+                    >
+                      {formatTimeToAMPM(slot)}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-black">No available time slots for this date.</p>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-black mb-2">Customer Name *</label>
+            <input
+              type="text"
+              value={customerName}
+              onChange={(e) => setCustomerName(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-black mb-2">Customer Email *</label>
+            <input
+              type="email"
+              value={customerEmail}
+              onChange={(e) => setCustomerEmail(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-black mb-2">Customer Phone</label>
+            <input
+              type="tel"
+              value={customerPhone}
+              onChange={(e) => setCustomerPhone(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-black mb-2">Location *</label>
+            <input
+              type="text"
+              value={customerLocation}
+              onChange={(e) => setCustomerLocation(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={isSubmitting || !selectedService || !selectedDate || !selectedTime}
+            className="w-full px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+          >
+            {isSubmitting ? 'Creating...' : 'Create Emergency Booking'}
+          </button>
+        </form>
       </div>
     </div>
   );

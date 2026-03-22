@@ -30,6 +30,10 @@ export default function BookPage() {
   const [showAddOnsModal, setShowAddOnsModal] = useState(false);
   const [tempSelectedAddOns, setTempSelectedAddOns] = useState<string[]>([]);
   const [isLoadingServices, setIsLoadingServices] = useState(true);
+  const [feedbackRating, setFeedbackRating] = useState<number | null>(null);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
   // Compute available add-ons for the selected service (if any)
   const availableAddOns = useMemo(() => {
@@ -1048,6 +1052,94 @@ export default function BookPage() {
                 Please check your inbox (and spam folder) for booking details.
               </p>
             </div>
+
+            {/* Feedback Form */}
+            {!feedbackSubmitted && (
+              <div className="bg-white/30 backdrop-blur-sm rounded-lg p-6 mb-6 border border-white/30">
+                <h3 className="text-xl font-semibold text-black mb-4">How was your experience?</h3>
+                <p className="text-sm text-black mb-4">
+                  Thanks for trusting us with your vehicle. Share your feedback and help us keep delivering 5-star results.
+                </p>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!feedbackComment.trim()) {
+                      alert('Please enter your feedback');
+                      return;
+                    }
+                    setIsSubmittingFeedback(true);
+                    try {
+                      const response = await fetch('/api/feedback', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          customerName: confirmedBooking.customerName,
+                          customerEmail: confirmedBooking.customerEmail,
+                          bookingId: confirmedBooking.id,
+                          rating: feedbackRating,
+                          comment: feedbackComment,
+                        }),
+                      });
+                      if (response.ok) {
+                        setFeedbackSubmitted(true);
+                        setFeedbackComment('');
+                        setFeedbackRating(null);
+                      } else {
+                        const error = await response.json();
+                        alert(`Failed to submit feedback: ${error.error || 'Please try again'}`);
+                      }
+                    } catch (error) {
+                      console.error('Error submitting feedback:', error);
+                      alert('Failed to submit feedback. Please try again.');
+                    } finally {
+                      setIsSubmittingFeedback(false);
+                    }
+                  }}
+                  className="space-y-4"
+                >
+                  <div>
+                    <label className="block text-sm font-medium text-black mb-2">Rating (optional)</label>
+                    <div className="flex gap-2">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          onClick={() => setFeedbackRating(star)}
+                          className={`text-2xl ${feedbackRating && feedbackRating >= star ? 'text-yellow-400' : 'text-gray-300'} hover:text-yellow-400 transition-colors`}
+                        >
+                          ★
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-black mb-2">Your Feedback *</label>
+                    <textarea
+                      value={feedbackComment}
+                      onChange={(e) => setFeedbackComment(e.target.value)}
+                      className="w-full border border-gray-300 rounded-md px-3 py-2 bg-white/30 backdrop-blur-sm min-h-[100px]"
+                      placeholder="Tell us about your experience..."
+                      required
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingFeedback}
+                    className="w-full px-6 py-3 bg-sky-400/80 backdrop-blur-sm text-black rounded-md hover:bg-sky-500/90 font-medium disabled:bg-gray-400 disabled:cursor-not-allowed"
+                  >
+                    {isSubmittingFeedback ? 'Submitting...' : 'Submit Feedback'}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {feedbackSubmitted && (
+              <div className="bg-green-50/50 backdrop-blur-sm rounded-lg p-4 mb-6 border border-green-200">
+                <p className="text-sm text-black">
+                  <strong>Thank you!</strong> Your feedback has been submitted successfully.
+                </p>
+              </div>
+            )}
 
             <div className="flex gap-4 justify-center">
               <Link

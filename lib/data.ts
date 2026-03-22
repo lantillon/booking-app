@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { Service, AddOn, Booking, Availability, Customer } from '@/types';
+import { Service, AddOn, Booking, Availability, Customer, Feedback } from '@/types';
 import { isSupabaseConfigured } from './supabase';
 import {
   getServicesSupabase,
@@ -24,6 +24,8 @@ import {
   getCustomerSupabase,
   createOrUpdateCustomerSupabase,
   applyDiscountSupabase,
+  getFeedbacksSupabase,
+  addFeedbackSupabase,
 } from './data-supabase';
 
 // Determine the correct data file path
@@ -41,6 +43,7 @@ export interface DataStore {
   bookings: Booking[];
   availability: Availability;
   customers: Customer[];
+  feedback: Feedback[];
 }
 
 function readData(): DataStore {
@@ -90,6 +93,7 @@ function readData(): DataStore {
       addOns: [],
       bookings: [],
       customers: [],
+      feedback: [],
       availability: {
         workingHours: {
           monday: { start: '09:00', end: '17:00', enabled: true },
@@ -101,7 +105,7 @@ function readData(): DataStore {
           sunday: { start: '09:00', end: '17:00', enabled: false },
         },
         slotDuration: 30,
-        paddingTime: 15, // 15 minutes padding between appointments
+        paddingTime: 30, // 30 minutes padding between appointments
       },
     };
   }
@@ -517,4 +521,32 @@ export async function applyDiscount(customerId: string, discountAmount: number):
   }
   
   return false;
+}
+
+export async function getFeedbacks(): Promise<Feedback[]> {
+  if (isSupabaseConfigured) {
+    return await getFeedbacksSupabase();
+  }
+  const data = readData();
+  return data.feedback || [];
+}
+
+export async function addFeedback(feedback: Feedback): Promise<void> {
+  if (isSupabaseConfigured) {
+    return await addFeedbackSupabase(feedback);
+  }
+  const data = readData();
+  if (!data.feedback) {
+    data.feedback = [];
+  }
+  data.feedback.push(feedback);
+  try {
+    writeData(data);
+  } catch (error: any) {
+    if (process.env.NETLIFY || process.env.VERCEL) {
+      console.warn('Could not persist feedback to file system (read-only). Feedback exists in memory for this request only.');
+    } else {
+      throw error;
+    }
+  }
 }
