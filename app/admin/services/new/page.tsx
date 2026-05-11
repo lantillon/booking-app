@@ -22,6 +22,11 @@ export default function NewServicePage() {
       largeSuv: 0,
       largeTruck: 0,
     },
+    useSeatRowPricing: false,
+    seatRowPricing: {
+      twoRows: 0,
+      threeRows: 0,
+    },
     addOnIds: [] as string[],
   });
   const [durationHours, setDurationHours] = useState(0);
@@ -68,6 +73,7 @@ export default function NewServicePage() {
       id: Date.now().toString(),
       ...formData,
       vehiclePricing: formData.useVehiclePricing ? formData.vehiclePricing : undefined,
+      seatRowPricing: formData.useSeatRowPricing ? formData.seatRowPricing : undefined,
     };
     await fetch('/api/services', {
       method: 'POST',
@@ -185,7 +191,7 @@ export default function NewServicePage() {
                 </div>
               </div>
             </div>
-            {!formData.useVehiclePricing && (
+            {!formData.useVehiclePricing && !formData.useSeatRowPricing && (
               <div>
                 <label className="block text-sm font-medium text-black mb-1">Price ($)</label>
                 <input
@@ -201,16 +207,73 @@ export default function NewServicePage() {
             )}
           </div>
           
+          {/* Seat Row Pricing Option */}
+          <div className="border-t pt-4">
+            <label className="flex items-center space-x-2 mb-4">
+              <input
+                type="checkbox"
+                checked={formData.useSeatRowPricing}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  useSeatRowPricing: e.target.checked,
+                  useVehiclePricing: e.target.checked ? false : formData.useVehiclePricing
+                })}
+                className="w-4 h-4"
+              />
+              <span className="text-sm font-medium text-black">Use pricing based on seat rows (2 rows vs 3 rows)</span>
+            </label>
+
+            {formData.useSeatRowPricing && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-4 rounded-md">
+                <div>
+                  <label className="block text-sm font-medium text-black mb-1">2 Seat Rows ($)</label>
+                  <p className="text-xs text-gray-500 mb-2">Sedans, coupes, most cars</p>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.seatRowPricing.twoRows}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      seatRowPricing: { ...formData.seatRowPricing, twoRows: parseFloat(e.target.value) || 0 }
+                    })}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-black mb-1">3 Seat Rows ($)</label>
+                  <p className="text-xs text-gray-500 mb-2">SUVs, minivans, larger vehicles</p>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.seatRowPricing.threeRows}
+                    onChange={(e) => setFormData({
+                      ...formData,
+                      seatRowPricing: { ...formData.seatRowPricing, threeRows: parseFloat(e.target.value) || 0 }
+                    })}
+                    className="w-full border border-gray-300 rounded-md px-3 py-2"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Vehicle Pricing Option */}
           <div className="border-t pt-4">
             <label className="flex items-center space-x-2 mb-4">
               <input
                 type="checkbox"
                 checked={formData.useVehiclePricing}
-                onChange={(e) => setFormData({ ...formData, useVehiclePricing: e.target.checked })}
+                onChange={(e) => setFormData({
+                  ...formData,
+                  useVehiclePricing: e.target.checked,
+                  useSeatRowPricing: e.target.checked ? false : formData.useSeatRowPricing
+                })}
                 className="w-4 h-4"
+                disabled={formData.useSeatRowPricing}
               />
-              <span className="text-sm font-medium text-black">Use different pricing based on vehicle size</span>
+              <span className={`text-sm font-medium ${formData.useSeatRowPricing ? 'text-gray-400' : 'text-black'}`}>Use different pricing based on vehicle size</span>
             </label>
             
             {formData.useVehiclePricing && (

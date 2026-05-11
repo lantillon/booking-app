@@ -3,6 +3,7 @@ import { getBookings, addBooking, getService, getAddOns, createOrUpdateCustomer,
 import { Booking } from '@/types';
 import { formatTimeToAMPM, formatDuration } from '@/lib/utils';
 import { Resend } from 'resend';
+import { sendBookingConfirmation } from '@/lib/sms';
 
 export async function GET() {
   const bookings = await getBookings();
@@ -38,9 +39,16 @@ export async function POST(request: NextRequest) {
   const addOnNames = addOns.map((a) => a.name);
   
   let totalDuration = service.duration;
-  // Use vehicle pricing if enabled and vehicle size is provided
+  // Use seat row pricing if enabled and seat rows is provided
   let totalPrice = service.price;
-  if (service.useVehiclePricing && service.vehiclePricing && bookingData.vehicleSize) {
+  if (service.useSeatRowPricing && service.seatRowPricing && bookingData.seatRows) {
+    const seatRowPrice = service.seatRowPricing[bookingData.seatRows as keyof typeof service.seatRowPricing];
+    if (seatRowPrice !== undefined) {
+      totalPrice = seatRowPrice;
+    }
+  }
+  // Otherwise use vehicle pricing if enabled and vehicle size is provided
+  else if (service.useVehiclePricing && service.vehiclePricing && bookingData.vehicleSize) {
     const vehiclePrice = service.vehiclePricing[bookingData.vehicleSize as keyof typeof service.vehiclePricing];
     if (vehiclePrice !== undefined) {
       totalPrice = vehiclePrice;
@@ -83,6 +91,7 @@ export async function POST(request: NextRequest) {
     duration: totalDuration,
     totalPrice: finalPrice,
     vehicleSize: bookingData.vehicleSize || undefined,
+    seatRows: bookingData.seatRows || undefined,
     createdAt: new Date().toISOString(),
   };
 
@@ -211,6 +220,32 @@ Detail Labs
     console.log('No email provided, skipping email confirmation');
   }
 
+  // Send SMS confirmation if phone number is provided
+  if (bookingData.customerPhone) {
+    try {
+      const formattedDate = new Date(bookingData.date).toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      });
+      const smsResult = await sendBookingConfirmation(
+        bookingData.customerPhone,
+        bookingData.customerName,
+        service.name,
+        formattedDate,
+        formatTimeToAMPM(bookingData.time)
+      );
+      if (smsResult.success) {
+        console.log('SMS confirmation sent successfully');
+      } else {
+        console.log('SMS confirmation skipped or failed:', smsResult.error || 'Not configured');
+      }
+    } catch (error: any) {
+      console.error('Error sending SMS confirmation:', error);
+      // Continue even if SMS fails
+    }
+  }
+
   // Send admin notification email
   const adminEmail = process.env.ADMIN_EMAIL || process.env.NOTIFICATION_EMAIL;
   if (adminEmail && resendApiKey) {
@@ -231,7 +266,9 @@ Detail Labs
         ? `\n\nAdd-ons: ${addOnNames.join(', ')}`
         : '';
       
-      const vehicleInfo = booking.vehicleSize 
+      const vehicleInfo = booking.seatRows
+        ? `\nSeat Rows: ${booking.seatRows === 'twoRows' ? '2 rows' : '3 rows'}`
+        : booking.vehicleSize
         ? `\nVehicle Size: ${booking.vehicleSize.charAt(0).toUpperCase() + booking.vehicleSize.slice(1).replace(/([A-Z])/g, ' $1')}`
         : '';
 

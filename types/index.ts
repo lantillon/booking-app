@@ -13,6 +13,11 @@ export interface Service {
     largeTruck?: number; // optional larger vehicle
   };
   useVehiclePricing?: boolean; // flag to indicate if vehicle pricing should be used
+  seatRowPricing?: { // optional: pricing based on number of seat rows
+    twoRows: number;   // 2 seat rows (e.g., sedans, coupes)
+    threeRows: number; // 3 seat rows (e.g., SUVs, minivans)
+  };
+  useSeatRowPricing?: boolean; // flag to indicate if seat row pricing should be used
   addOnIds?: string[]; // optional: array of add-on IDs assigned to this service
 }
 
@@ -27,8 +32,8 @@ export interface AddOn {
 export interface Booking {
   id: string;
   customerName: string;
-  customerEmail: string;
-  customerPhone?: string; // Phone number for SMS confirmations
+  customerEmail?: string; // Optional - for email confirmations
+  customerPhone: string; // Phone number - required
   location: string; // Customer's address/location for mobile service
   serviceId: string;
   serviceName: string;
@@ -39,6 +44,7 @@ export interface Booking {
   duration: number; // total duration in minutes
   totalPrice: number;
   vehicleSize?: string; // Optional: 'sedan', 'suv', 'truck', 'van', 'largeTruck'
+  seatRows?: string; // Optional: 'twoRows', 'threeRows'
   zipCode?: string; // Customer's zip code for location-based scheduling
   createdAt: string;
 }

@@ -9,13 +9,13 @@ const processedMessages = new Set<string>();
 
 // El Paso zip code coordinates (lat, lng)
 const ZIP_COORDS: Record<string, { lat: number; lng: number }> = {
-  // West side (Mondays only)
+  // West side
   '79835': { lat: 31.8084, lng: -106.5811 }, // Sunland Park
   '79912': { lat: 31.8406, lng: -106.5678 }, // West El Paso
   '79922': { lat: 31.8989, lng: -106.5700 }, // Canutillo area
   '79932': { lat: 31.8639, lng: -106.6228 }, // Westway
   '88063': { lat: 31.8300, lng: -106.6000 }, // Sunland Park NM
-  // East/Central (any day)
+  // East/Central
   '79821': { lat: 31.3275, lng: -105.9367 }, // Anthony
   '79836': { lat: 31.5264, lng: -106.0828 }, // Clint
   '79838': { lat: 31.4869, lng: -106.1697 }, // Fabens
@@ -41,7 +41,6 @@ const ZIP_COORDS: Record<string, { lat: number; lng: number }> = {
   '79938': { lat: 31.8000, lng: -106.2300 }, // Far East/Horizon
 };
 
-const WEST_SIDE_ZIPS = ['79835', '79912', '79922', '79932', '88063'];
 const HOME_ZIP = '79928';
 const MAX_MILES_FROM_HOME = 10;
 const MAX_MILES_BETWEEN_BOOKINGS = 7;
@@ -58,11 +57,6 @@ function getDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number
   return R * c;
 }
 
-// Check if a zip code is on the west side
-function isWestSide(zip: string): boolean {
-  return WEST_SIDE_ZIPS.includes(zip);
-}
-
 // Check if customer location is valid for a given date based on existing bookings
 function isLocationValidForDate(
   customerZip: string,
@@ -73,11 +67,6 @@ function isLocationValidForDate(
   const customerCoords = ZIP_COORDS[customerZip];
   if (!customerCoords) {
     return { valid: true }; // Unknown zip, allow it
-  }
-
-  // Check west side restriction (only Mondays)
-  if (isWestSide(customerZip) && dayOfWeek !== 1) {
-    return { valid: false, reason: 'West side locations are only available on Mondays' };
   }
 
   // Get bookings for this date
@@ -133,7 +122,15 @@ interface ConversationState {
   lastBookingKey?: string;
   history: { role: string; content: string }[];
   lastActivity: number;
+  humanTakeover?: boolean;
+  humanTakeoverAt?: number;
+  humanTakeoverDuration?: number;
+  instagramName?: string;
+  instagramUsername?: string;
 }
+
+// 24 hours in milliseconds
+const HUMAN_TAKEOVER_DURATION = 24 * 60 * 60 * 1000;
 
 const defaultState = (): ConversationState => ({
   step: 'greeting',
@@ -206,15 +203,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'bot_disabled' });
     }
 
-    // Verify it's an Instagram event
-    if (body.object !== 'instagram') {
+    // Verify it's an Instagram event (can also be 'page' for some webhook types)
+    if (body.object !== 'instagram' && body.object !== 'page') {
+      console.log('Ignoring non-Instagram/page event:', body.object);
       return NextResponse.json({ status: 'ignored' });
     }
+
+    // Get the page/business Instagram ID from env or detect from webhook
+    const pageId = process.env.INSTAGRAM_PAGE_ID;
 
     // Process each entry (with message deduplication)
     for (const entry of body.entry || []) {
       for (const event of entry.messaging || []) {
+        const senderId = event.sender?.id;
+        const recipientId = event.recipient?.id;
         const messageId = event.message?.mid;
+
         if (messageId && processedMessages.has(messageId)) {
           console.log('Duplicate message ignored:', messageId);
           continue;
@@ -229,18 +233,92 @@ export async function POST(request: NextRequest) {
           }
         }
 
-        // Handle text messages
-        if (event.message?.text) {
-          await handleMessage(event.sender.id, event.message.text);
+        // Check if this message is from the business owner (human takeover)
+        const isFromBusiness = pageId && senderId === pageId;
+
+        if (isFromBusiness && recipientId) {
+          const messageText = event.message?.text || '';
+
+          // Check for pause command (!pause) - pauses bot for 1 hour
+          if (messageText.toLowerCase().includes('!pause')) {
+            console.log('Manual pause requested for customer:', recipientId);
+            await markHumanTakeover(recipientId, 60 * 60 * 1000); // 1 hour
+            continue;
+          }
+
+          // Check for resume command (!resume) - resumes bot immediately
+          if (messageText.toLowerCase().includes('!resume')) {
+            console.log('Manual resume requested for customer:', recipientId);
+            await clearHumanTakeover(recipientId);
+            continue;
+          }
+
+          // Regular business messages - don't pause, just ignore
+          console.log('Business message (no pause):', recipientId);
+          continue;
         }
-        // Handle image attachments
-        else if (event.message?.attachments) {
-          const imageAttachment = event.message.attachments.find(
-            (att: any) => att.type === 'image'
-          );
-          if (imageAttachment?.payload?.url) {
-            const text = event.message.text || 'Customer sent an image';
-            await handleMessage(event.sender.id, text, imageAttachment.payload.url);
+
+        // Skip if no senderId
+        if (!senderId) {
+          console.log('No senderId, skipping');
+          continue;
+        }
+
+        // Handle reactions (just acknowledge, don't respond)
+        if (event.reaction) {
+          console.log('Reaction received, ignoring:', event.reaction);
+          continue;
+        }
+
+        // Handle read receipts (ignore)
+        if (event.read) {
+          console.log('Read receipt, ignoring');
+          continue;
+        }
+
+        // Handle postbacks (button clicks)
+        if (event.postback) {
+          console.log('Postback received:', event.postback);
+          await handleMessage(senderId, event.postback.payload || event.postback.title || 'Button clicked');
+          continue;
+        }
+
+        // Handle messages
+        if (event.message) {
+          let messageText = event.message.text || '';
+          let imageUrl: string | undefined;
+
+          // Check for attachments
+          if (event.message.attachments) {
+            for (const att of event.message.attachments) {
+              if (att.type === 'image' && att.payload?.url) {
+                imageUrl = att.payload.url;
+              } else if (att.type === 'story_mention' || att.type === 'share') {
+                // Story mention or share - treat as engagement
+                if (!messageText) {
+                  messageText = att.type === 'story_mention'
+                    ? 'Customer mentioned you in their story'
+                    : 'Customer shared something with you';
+                }
+              } else if (att.type === 'audio' || att.type === 'video' || att.type === 'file') {
+                // Audio/video/file - acknowledge but can't process
+                if (!messageText) {
+                  messageText = `Customer sent a ${att.type}`;
+                }
+              }
+            }
+          }
+
+          // Handle quick replies
+          if (event.message.quick_reply?.payload) {
+            messageText = event.message.quick_reply.payload;
+          }
+
+          // Only process if we have something to respond to
+          if (messageText || imageUrl) {
+            await handleMessage(senderId, messageText || 'Customer sent a message', imageUrl);
+          } else {
+            console.log('Message with no processable content:', JSON.stringify(event.message));
           }
         }
       }
@@ -253,11 +331,92 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Mark a conversation as taken over by human (with custom duration)
+async function markHumanTakeover(customerId: string, duration?: number): Promise<void> {
+  const state = await getConversationState(customerId);
+  state.humanTakeover = true;
+  state.humanTakeoverAt = Date.now();
+  state.humanTakeoverDuration = duration || HUMAN_TAKEOVER_DURATION;
+  await saveConversationState(customerId, state);
+}
+
+// Clear human takeover (resume bot immediately)
+async function clearHumanTakeover(customerId: string): Promise<void> {
+  const state = await getConversationState(customerId);
+  state.humanTakeover = false;
+  state.humanTakeoverAt = undefined;
+  state.humanTakeoverDuration = undefined;
+  await saveConversationState(customerId, state);
+}
+
+// Fetch Instagram user profile (name, username)
+async function getInstagramUserProfile(userId: string): Promise<{ name?: string; username?: string }> {
+  const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN || process.env.META_PAGE_ACCESS_TOKEN;
+  if (!accessToken) {
+    return {};
+  }
+
+  try {
+    const response = await fetch(
+      `https://graph.instagram.com/${userId}?fields=name,username&access_token=${accessToken}`
+    );
+
+    if (!response.ok) {
+      console.error('Failed to fetch Instagram profile:', await response.text());
+      return {};
+    }
+
+    const data = await response.json();
+    return {
+      name: data.name || undefined,
+      username: data.username || undefined,
+    };
+  } catch (error) {
+    console.error('Error fetching Instagram profile:', error);
+    return {};
+  }
+}
+
 async function handleMessage(senderId: string, messageText: string, imageUrl?: string) {
   try {
     // Get or create conversation state from Supabase
     let state = await getConversationState(senderId);
     state.lastActivity = Date.now();
+
+    // Fetch Instagram profile if not already fetched
+    if (!state.instagramName && !state.instagramUsername) {
+      const profile = await getInstagramUserProfile(senderId);
+      if (profile.name) state.instagramName = profile.name;
+      if (profile.username) state.instagramUsername = profile.username;
+      // Pre-fill customer name from Instagram if available
+      if (profile.name && !state.customerName) {
+        state.customerName = profile.name;
+      }
+      console.log('Fetched Instagram profile:', profile);
+    }
+
+    // Check if manual pause is active (triggered by !pause command)
+    if (state.humanTakeover && state.humanTakeoverAt) {
+      const timeSinceTakeover = Date.now() - state.humanTakeoverAt;
+      const duration = state.humanTakeoverDuration || HUMAN_TAKEOVER_DURATION;
+      if (timeSinceTakeover < duration) {
+        const remainingMins = Math.ceil((duration - timeSinceTakeover) / 60000);
+        console.log(`Bot paused for ${remainingMins} more minutes for:`, senderId);
+        // Still save the message to history for context
+        const historyContent = imageUrl ? `${messageText} [Customer sent an image]` : messageText;
+        state.history.push({ role: 'user', content: historyContent });
+        if (state.history.length > 20) {
+          state.history = state.history.slice(-20);
+        }
+        await saveConversationState(senderId, state);
+        return; // Don't respond - bot is paused
+      } else {
+        console.log('Pause expired for:', senderId, '- bot resuming');
+        state.humanTakeover = false;
+        state.humanTakeoverAt = undefined;
+        state.humanTakeoverDuration = undefined;
+      }
+    }
 
     // Add user message to history (note if image was included)
     const historyContent = imageUrl ? `${messageText} [Customer sent an image]` : messageText;
@@ -372,7 +531,10 @@ async function generateAIResponse(
   // Build service list with accurate pricing
   const serviceList = services.map((s, i) => {
     let pricing = `$${s.price}`;
-    if (s.useVehiclePricing && s.vehiclePricing) {
+    if (s.useSeatRowPricing && s.seatRowPricing) {
+      const srp = s.seatRowPricing;
+      pricing = `2 seat rows $${srp.twoRows}, 3 seat rows $${srp.threeRows}`;
+    } else if (s.useVehiclePricing && s.vehiclePricing) {
       const vp = s.vehiclePricing;
       pricing = `Sedan $${vp.sedan || s.price}, SUV $${vp.suv || s.price}, Truck $${vp.truck || s.price}`;
       if (vp.largeSuv) pricing += `, Large SUV $${vp.largeSuv}`;
@@ -423,6 +585,8 @@ async function generateAIResponse(
 
   // Current booking progress
   let bookingProgress = '';
+  if (state.instagramName) bookingProgress += `Instagram Name: ${state.instagramName}\n`;
+  if (state.instagramUsername) bookingProgress += `Instagram Username: @${state.instagramUsername}\n`;
   if (state.serviceName) bookingProgress += `✓ Service: ${state.serviceName} - $${state.servicePrice}\n`;
   if (state.vehicleSize) bookingProgress += `✓ Vehicle: ${state.vehicleSize}\n`;
   if (state.addOnNames?.length) {
@@ -431,7 +595,7 @@ async function generateAIResponse(
   }
   if (state.selectedDate) bookingProgress += `✓ Date: ${state.selectedDate}\n`;
   if (state.selectedTime) bookingProgress += `✓ Time: ${state.selectedTime}\n`;
-  if (state.customerName) bookingProgress += `✓ Name: ${state.customerName}\n`;
+  if (state.customerName) bookingProgress += `✓ Name: ${state.customerName}${state.instagramName && state.customerName === state.instagramName ? ' (from Instagram)' : ''}\n`;
   if (state.customerPhone) bookingProgress += `✓ Phone: ${state.customerPhone}\n`;
   if (state.customerEmail) bookingProgress += `✓ Email: ${state.customerEmail}\n`;
   if (state.location) bookingProgress += `✓ Location: ${state.location}\n`;
@@ -440,27 +604,22 @@ async function generateAIResponse(
   // Build location-based availability info
   let locationInfo = '';
   if (state.zipCode) {
-    const isWest = isWestSide(state.zipCode);
-    if (isWest) {
-      locationInfo = `Customer is in WEST SIDE zip code (${state.zipCode}). ONLY Mondays are available for this location.`;
+    // Check which days are valid based on existing bookings
+    const validDays: string[] = [];
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      const dateStr = d.toISOString().split('T')[0];
+      const dayOfWeek = d.getDay();
+      const result = isLocationValidForDate(state.zipCode, dateStr, bookings, dayOfWeek);
+      if (result.valid) {
+        validDays.push(`${dayLabels[dayOfWeek]} ${dateStr}`);
+      }
+    }
+    if (validDays.length > 0) {
+      locationInfo = `Customer zip code ${state.zipCode} is valid. Available days based on location: ${validDays.slice(0, 7).join(', ')}${validDays.length > 7 ? '...' : ''}`;
     } else {
-      // Check which days are valid based on existing bookings
-      const validDays: string[] = [];
-      for (let i = 0; i < 14; i++) {
-        const d = new Date(today);
-        d.setDate(d.getDate() + i);
-        const dateStr = d.toISOString().split('T')[0];
-        const dayOfWeek = d.getDay();
-        const result = isLocationValidForDate(state.zipCode, dateStr, bookings, dayOfWeek);
-        if (result.valid) {
-          validDays.push(`${dayLabels[dayOfWeek]} ${dateStr}`);
-        }
-      }
-      if (validDays.length > 0) {
-        locationInfo = `Customer zip code ${state.zipCode} is valid. Available days based on location: ${validDays.slice(0, 7).join(', ')}${validDays.length > 7 ? '...' : ''}`;
-      } else {
-        locationInfo = `Customer zip code ${state.zipCode} - No available days match the location requirements (too far from other bookings or home base).`;
-      }
+      locationInfo = `Customer zip code ${state.zipCode} - No available days match the location requirements (too far from other bookings or home base).`;
     }
   } else {
     locationInfo = 'Zip code not yet collected. ASK FOR ZIP CODE EARLY to determine available days.';
@@ -506,85 +665,52 @@ We are a premium mobile car detailing business. We come to the customer's locati
 ## INTERIOR DETAIL SERVICE
 - Complete interior deep clean
 - Includes: vacuum, wipe down of all surfaces, carpet/cloth spot treatment, upholstery cleaning, steam cleaning, floor mat cleaning, headliner cleaning, interior window cleaning, leather conditioning, and door/trunk jamb cleaning
-- Pricing varies by vehicle size — always ask what they drive before quoting
+- **Pricing based on seat rows:**
+  - 2 seat rows (sedans, coupes, most cars): $85
+  - 3 seat rows (SUVs, minivans, larger vehicles): $90
+- Always ask "Does your vehicle have 2 or 3 rows of seats?" before quoting
 - **Duration: 2 hours** (blocks 2 hours on the calendar + 30 min buffer after)
 - We come to YOU
 - Payment: We accept cash, credit card, Cash App, and Zelle
 
 ## SCHEDULING RULES
+- **WEEKDAYS (Mon-Fri)**: We offer 3 appointment times: 9:00 AM, 1:00 PM, and 4:00 PM
+- **1 PM RESTRICTION (weekdays only)**: The 1:00 PM slot is ONLY available after EVERY weekday (Mon-Fri) in the week has both a 9:00 AM AND 4:00 PM booking. Until all edge slots are filled for the week, only offer 9 AM and 4 PM on weekdays.
+- **SATURDAY**: Only 2 slots available: 9:00 AM and 1:00 PM (NO 4 PM on Saturday). The 1 PM restriction does NOT apply to Saturday — both slots are always available if not booked.
+- **SUNDAY**: Closed
 - Each appointment blocks its full service duration on the calendar (e.g., Interior Detail = 2 hours)
 - Add-ons add to the total duration (e.g., Extraction adds 30-45 min)
-- There is a **30-minute buffer** between all appointments for travel/setup
+- There is a **1-hour buffer** between all appointments for travel/setup
 - Always tell customers how long their service will take
 
-## PAINT CORRECTION SERVICES (QUOTE-BASED)
-Paint correction removes swirls, scratches, oxidation, and imperfections to restore your paint's clarity and shine.
+## PAINT CORRECTION SERVICES (ONLY IF CUSTOMER ASKS)
+**IMPORTANT: Do NOT proactively offer or mention paint correction. Only discuss if the customer specifically asks about it.**
 
-**IMPORTANT: Paint correction is quote-based. Ask these questions before quoting:**
-1. What vehicle do you have? (year, make, model)
-2. What color is your paint? (dark colors show more imperfections)
-3. What's the current condition? (light swirls, heavy scratches, oxidation, never been corrected?)
-4. What's your goal? (daily driver improvement vs. showroom finish)
-5. Is this for a special occasion or to prep for ceramic coating?
+Paint correction removes swirls, scratches, oxidation, and imperfections to restore paint clarity.
 
-**COMPETITIVE EL PASO PRICING (adjust based on vehicle size and condition):**
+If customer asks, gather these details before quoting:
+1. Vehicle (year, make, model)
+2. Paint color
+3. Current condition (light swirls, heavy scratches, oxidation?)
+4. Their goal
 
-SINGLE-STAGE POLISH (light swirls, minor imperfections):
-- Sedan/Coupe: $350-$450
-- SUV/Crossover: $400-$500
-- Truck/Large SUV: $450-$550
+**PRICING (quote-based, adjust for vehicle size/condition):**
+- Single-stage polish: $350-$550
+- Two-stage correction: $500-$850
+- Multi-stage/heavy correction: $700-$1200+
 
-TWO-STAGE CORRECTION (moderate swirls, scratches, oxidation):
-- Sedan/Coupe: $500-$650
-- SUV/Crossover: $600-$750
-- Truck/Large SUV: $700-$850
+Includes free interior detail with paint correction.
 
-MULTI-STAGE/HEAVY CORRECTION (severe defects, neglected paint):
-- Sedan/Coupe: $700-$900
-- SUV/Crossover: $850-$1050
-- Truck/Large SUV: $1000-$1200+
+## CERAMIC COATING (ONLY IF CUSTOMER ASKS)
+**Do NOT proactively offer ceramic coating. Only discuss if customer asks.**
+**Do NOT offer the 1-2 year paint protection/sealant option. Instead, recommend the Exterior add-on for customers wanting basic exterior care.**
 
-**FREE INTERIOR DETAIL INCLUDED!** Every paint correction service includes a complimentary full interior detail (normally $150-$200 value). Make sure to mention this as a selling point!
+Pricing (applied after paint correction):
+- Mid-tier (3-5 year): $650-$1000
+- Professional (5-7+ year): $1000-$1700
 
-**SALES APPROACH FOR PAINT CORRECTION:**
-- Be enthusiastic but not pushy
-- Explain the value: "Paint correction isn't just cosmetic — it protects your investment and can increase resale value"
-- For dark colors: "Black/dark paint really shows every swirl, but it also looks INCREDIBLE when properly corrected"
-- Create urgency naturally: "The longer oxidation sits, the deeper it gets into the clear coat"
-- Mention the free interior: "And the best part? We include a full interior detail at no extra charge"
-
-## CERAMIC COATING ADD-ON
-Ceramic coating provides long-lasting protection after paint correction. Always offer this after discussing paint correction!
-
-**CERAMIC COATING PRICING (applied after paint correction):**
-
-ENTRY-LEVEL (1-2 year protection):
-- Sedan/Coupe: $400-$550
-- SUV/Truck: $500-$650
-Best for: customers on a budget, lease vehicles, daily drivers wanting basic protection
-
-MID-TIER (3-5 year protection):
-- Sedan/Coupe: $650-$850
-- SUV/Truck: $750-$1000
-Best for: most customers, great balance of protection and value
-
-PROFESSIONAL GRADE (5-7+ year protection):
-- Sedan/Coupe: $1000-$1400
-- SUV/Truck: $1200-$1700
-Best for: enthusiasts, show cars, customers wanting maximum protection
-
-**CERAMIC COATING SALES TIPS:**
-- "Since we're already correcting the paint, this is the perfect time to lock in that finish with ceramic coating"
-- "Ceramic coating makes maintenance so much easier — dirt and water just bead right off"
-- "It's way more cost-effective than waxing every few months"
-- Offer package deals: "If you add ceramic coating to your paint correction, I can do [X] for [bundled price]"
-
-**PAINT CORRECTION + CERAMIC BUNDLES (suggest these!):**
-- Single-stage + Entry ceramic: Save $50-100
-- Two-stage + Mid-tier ceramic: Save $100-150
-- Multi-stage + Professional ceramic: Save $150-200
-
-When quoting bundles, calculate the combined price and apply the discount. Example: "Two-stage correction ($400) plus mid-tier ceramic ($500) would normally be $900, but I can do $800 for the package."
+## EXTERIOR ADD-ON
+When customers ask about exterior cleaning, washing, or basic paint protection, recommend the **Exterior add-on** from the add-ons list. This is our go-to option for exterior care without full paint correction or ceramic coating.
 
 ## SERVICES (USE EXACT IDs AND PRICES)
 ${serviceList || 'No services available'}
@@ -597,8 +723,6 @@ ${workingHoursText}
 
 ## LOCATION-BASED SCHEDULING (IMPORTANT!)
 We are a mobile service based in East El Paso (79928). To minimize drive time:
-- **West side zip codes (79835, 79912, 79922, 79932, 88063)**: ONLY available on Mondays
-- **All other areas**: Available any open day, but must be within our service range
 - First appointment of the day: must be within 10 miles of our base
 - Additional appointments: must be within 7 miles of other bookings that day
 
@@ -616,29 +740,32 @@ ${availableSlotsText.join('\n')}
 
 ## WHEN CUSTOMER ASKS ABOUT AVAILABILITY
 When a customer asks "when are you available?", "what days are open?", "do you have availability on [day]?", or similar:
+- We only have 3 possible time slots: 9:00 AM, 1:00 PM, and 4:00 PM
+- The 1:00 PM slot only unlocks once every open day in the week has both 9 AM and 4 PM booked
 - Show them the ACTUAL available time slots from the LIVE AVAILABILITY section above
 - ONLY mention times that are listed — never make up or guess times
-- Format nicely, e.g. "This Thursday we have openings at 9:00 AM, 11:00 AM, and 2:00 PM"
+- Format nicely, e.g. "This Thursday we have openings at 9:00 AM and 4:00 PM"
 - If a day shows FULLY BOOKED / CLOSED, tell them that day is not available
 
 ## WHEN CUSTOMER WANTS TO BOOK
 Only start collecting booking information when the customer explicitly says they want to book, schedule, or make an appointment. Then collect in this order:
 1. **Zip code** (MUST collect first to determine available days - ask "What's your zip code?")
 2. Service (MUST use exact service ID from list above)
-3. Vehicle size (if service has vehicle pricing): sedan, suv, truck, largeSuv, largeTruck
-4. Add-ons (optional - customer can decline)
-5. Date (YYYY-MM-DD format - MUST check LOCATION-BASED SCHEDULING rules first!)
-6. Time (HH:MM 24hr format, must be an available slot from LIVE AVAILABILITY)
-7. Customer name
+3. **Seat rows** (for Interior Detail): Ask "Does your vehicle have 2 or 3 rows of seats?" - 2 rows = sedans/coupes ($85), 3 rows = SUVs/minivans ($90)
+4. Vehicle size (if service has vehicle pricing instead of seat row pricing): sedan, suv, truck, largeSuv, largeTruck
+5. Add-ons (optional - customer can decline)
+6. Date (YYYY-MM-DD format - MUST check LOCATION-BASED SCHEDULING rules first!)
+7. Time (only 09:00, 13:00, or 16:00 — must be available in LIVE AVAILABILITY)
 8. Phone number
-9. Email address
-10. Full service address
-11. Confirm and book
+9. Full service address
+10. Confirm and book
+
+**NAME HANDLING:** Use the customer's Instagram name automatically. Do NOT ask for their name — it's already captured from their Instagram profile. If no Instagram name is available, just use their Instagram username.
+
+**EMAIL IS OPTIONAL:** Do NOT ask for email. Only ask if the customer wants a confirmation email sent.
 
 **LOCATION RULES TO ENFORCE:**
-- If zip code is 79835, 79912, 79922, 79932, or 88063 → ONLY offer Mondays
-- If customer wants a day that doesn't match their location, explain why and offer valid alternatives
-- Never book a west side customer on a non-Monday
+- If customer wants a day that doesn't match their location requirements, explain why and offer valid alternatives
 
 ## THIS CUSTOMER'S PAST BOOKINGS
 ${(() => {
@@ -683,12 +810,9 @@ If a customer sends a photo, analyze it and respond helpfully:
 - Example for leather/no stains: "Your interior looks like it just needs a standard deep clean. Our Interior Detail ($X) will have it looking great!"
 
 **Exterior/paint photos:**
-- Look for swirl marks, scratches, oxidation, water spots
-- Assess severity (light, moderate, heavy)
-- Recommend appropriate paint correction level
-- Mention the free interior detail included
-- Offer ceramic coating if paint correction is needed
-- Example: "I can see moderate swirl marks and some light scratches. This would benefit from our two-stage paint correction ($X-X depending on vehicle size), which includes a FREE interior detail. Want me to give you an exact quote?"
+- Ask what they're looking for help with
+- Only discuss paint correction if they specifically ask about scratches, swirls, or paint issues
+- Example: "Thanks for the photo! What are you looking to have done? We mainly do interior detailing."
 
 **Other photos:**
 - Respond appropriately based on context
@@ -697,7 +821,8 @@ If a customer sends a photo, analyze it and respond helpfully:
 ## CRITICAL RULES
 - Default to INFO mode — answer questions, be helpful, don't push booking
 - ONLY use service IDs, names, and prices from the list above
-- ONLY offer time slots that appear in LIVE AVAILABILITY — never invent times
+- ONLY offer the 3 fixed time slots: 9:00 AM, 1:00 PM (only if all days that week have 9 AM + 4 PM booked), or 4:00 PM — never invent times
+- ONLY offer time slots that appear in LIVE AVAILABILITY
 - For vehicle pricing, ask vehicle type BEFORE quoting final price
 - NEVER book a date or time that has already passed. Check the current date and time above.
 - Bookings must be at least 24 hours in advance — no same-day bookings
@@ -718,10 +843,10 @@ If a customer sends a photo, analyze it and respond helpfully:
     "addOnPrices": [prices] or [],
     "date": "YYYY-MM-DD or null",
     "time": "HH:MM or null",
-    "name": "customer name or null",
-    "phone": "phone or null",
-    "email": "email or null",
-    "location": "address or null",
+    "name": "only if customer provides a DIFFERENT name than their Instagram name",
+    "phone": "phone or null (REQUIRED for booking)",
+    "email": "email or null (OPTIONAL - only if customer provides it)",
+    "location": "address or null (REQUIRED for booking)",
     "zipCode": "5-digit zip code or null"
   },
   "action": "continue|book|escalate"
@@ -742,6 +867,13 @@ If a customer sends a photo, analyze it and respond helpfully:
       }, [])
       .filter((m, i) => !(i === 0 && m.role === 'assistant'))
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+    console.log('Messages array for Claude:', JSON.stringify(messages, null, 2));
+
+    // Ensure we have at least one user message
+    if (messages.length === 0) {
+      messages = [{ role: 'user' as const, content: userMessage }];
+    }
 
     // If there's an image, modify the last user message to include it
     if (imageUrl && messages.length > 0) {
@@ -785,34 +917,176 @@ If a customer sends a photo, analyze it and respond helpfully:
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
     console.log('AI raw response:', text);
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
 
-    if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[0]);
-      } catch (parseError) {
-        console.error('JSON parse error:', parseError, 'Raw:', jsonMatch[0]);
+    // Try to extract JSON - find the last complete JSON object
+    let jsonStr = '';
+    let braceCount = 0;
+    let inString = false;
+    let escape = false;
+    let startIdx = -1;
+
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+
+      if (escape) {
+        escape = false;
+        continue;
       }
-    } else {
-      console.error('No JSON found in AI response:', text);
+
+      if (char === '\\' && inString) {
+        escape = true;
+        continue;
+      }
+
+      if (char === '"' && !escape) {
+        inString = !inString;
+        continue;
+      }
+
+      if (!inString) {
+        if (char === '{') {
+          if (braceCount === 0) startIdx = i;
+          braceCount++;
+        } else if (char === '}') {
+          braceCount--;
+          if (braceCount === 0 && startIdx !== -1) {
+            jsonStr = text.slice(startIdx, i + 1);
+          }
+        }
+      }
     }
-  } catch (error) {
-    console.error('AI error:', error);
+
+    if (jsonStr) {
+      try {
+        const parsed = JSON.parse(jsonStr);
+        if (parsed.reply) {
+          return parsed;
+        }
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError);
+      }
+    }
+
+    // If no valid JSON, try to use the raw text as a reply
+    if (text && text.length > 0 && text.length < 2000) {
+      console.log('Using raw text as fallback reply, length:', text.length);
+      const cleanedText = text.replace(/```json|```/g, '').replace(/^\s*\{[\s\S]*$/, '').trim();
+      if (cleanedText.length > 0 && cleanedText.length < 1500) {
+        return {
+          reply: cleanedText,
+          action: 'continue',
+          extracted: {}
+        };
+      }
+    }
+
+    console.error('No valid response from AI, text length:', text?.length);
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error);
+    const statusCode = error?.status || error?.statusCode;
+
+    console.error('AI error:', {
+      message: errorMessage,
+      status: statusCode,
+      type: error?.error?.type,
+      fullError: error
+    });
+
+    // Check for billing/authentication errors
+    if (statusCode === 401 || statusCode === 403) {
+      console.error('🚨 ANTHROPIC API KEY INVALID OR EXPIRED');
+      await notifyOwnerOfApiError('API key invalid or expired. Check your Anthropic API key.');
+      return {
+        reply: "I'm temporarily unavailable. Please call or text us at 915-270-2659 for immediate assistance!",
+        action: 'escalate',
+        extracted: {}
+      };
+    }
+
+    if (statusCode === 402 || errorMessage.includes('credit') || errorMessage.includes('balance') || errorMessage.includes('billing')) {
+      console.error('🚨 ANTHROPIC API OUT OF CREDITS');
+      await notifyOwnerOfApiError('Anthropic API out of credits! Add funds at console.anthropic.com/settings/billing');
+      return {
+        reply: "I'm temporarily unavailable. Please call or text us at 915-270-2659 for immediate assistance!",
+        action: 'escalate',
+        extracted: {}
+      };
+    }
+
+    if (statusCode === 429) {
+      console.error('🚨 ANTHROPIC API RATE LIMITED');
+      return {
+        reply: "I'm getting a lot of messages right now! Give me a moment and try again, or call us at 915-270-2659.",
+        action: 'continue',
+        extracted: {}
+      };
+    }
+
+    if (statusCode === 529 || statusCode === 503 || errorMessage.includes('overloaded')) {
+      console.error('🚨 ANTHROPIC API OVERLOADED');
+      return {
+        reply: "I'm experiencing high demand right now. Please try again in a moment or call us at 915-270-2659!",
+        action: 'continue',
+        extracted: {}
+      };
+    }
   }
 
   return {
-    reply: "I'd be happy to help you book a detailing appointment! What service are you interested in?",
+    reply: "Hey! How can I help you today? I can answer questions about our detailing services or help you book an appointment.",
     action: 'continue',
     extracted: {}
   };
 }
 
+// Notify owner of critical API errors (only once per hour to avoid spam)
+let lastApiErrorNotification = 0;
+async function notifyOwnerOfApiError(errorMessage: string): Promise<void> {
+  const now = Date.now();
+  const oneHour = 60 * 60 * 1000;
+
+  // Only notify once per hour
+  if (now - lastApiErrorNotification < oneHour) {
+    console.log('Skipping API error notification (already sent within the hour)');
+    return;
+  }
+
+  lastApiErrorNotification = now;
+
+  // Try to send SMS via Twilio if configured
+  const twilioSid = process.env.TWILIO_ACCOUNT_SID;
+  const twilioToken = process.env.TWILIO_AUTH_TOKEN;
+  const twilioPhone = process.env.TWILIO_PHONE_NUMBER;
+  const ownerPhone = process.env.OWNER_PHONE || '9152702659';
+
+  if (twilioSid && twilioToken && twilioPhone) {
+    try {
+      const client = require('twilio')(twilioSid, twilioToken);
+      await client.messages.create({
+        body: `🚨 Detail Labs Bot Alert: ${errorMessage}`,
+        from: twilioPhone,
+        to: `+1${ownerPhone.replace(/\D/g, '')}`
+      });
+      console.log('Owner notified via SMS about API error');
+    } catch (smsError) {
+      console.error('Failed to send SMS notification:', smsError);
+    }
+  } else {
+    console.log('Twilio not configured - cannot send SMS notification');
+  }
+}
+
 async function createBookingFromState(state: ConversationState): Promise<{ success: boolean; error?: string; bookingId?: string }> {
   try {
+    // Required: service, date, time, phone, location
     if (!state.serviceId || !state.selectedDate || !state.selectedTime ||
-        !state.customerName || !state.customerEmail || !state.location) {
-      return { success: false, error: 'Missing required information' };
+        !state.customerPhone || !state.location) {
+      return { success: false, error: 'Missing required information (need phone and address)' };
     }
+
+    // Use Instagram name, or username as fallback, or "Instagram Customer" as last resort
+    const customerName = state.customerName || state.instagramName ||
+      (state.instagramUsername ? `@${state.instagramUsername}` : 'Instagram Customer');
 
     // Get service to calculate proper pricing
     const service = await getService(state.serviceId);
@@ -836,11 +1110,17 @@ async function createBookingFromState(state: ConversationState): Promise<{ succe
       (await getAddOns()).filter(a => state.addOnIds?.includes(a.id)).reduce((acc, a) => acc + (a.duration || 0), 0) : 0;
     const totalDuration = service.duration + addOnDuration;
 
+    // Validate that the time slot has enough space for the service + add-ons
+    const availableSlots = await getAvailableTimeSlots(state.selectedDate, totalDuration);
+    if (!availableSlots.includes(state.selectedTime)) {
+      return { success: false, error: `The ${state.selectedTime} slot doesn't have enough time for your ${totalDuration}-minute service. Please choose an earlier time slot.` };
+    }
+
     const booking: Booking = {
       id: Date.now().toString(),
-      customerName: state.customerName,
-      customerEmail: state.customerEmail,
-      customerPhone: state.customerPhone || '',
+      customerName: customerName,
+      customerEmail: state.customerEmail, // Optional - may be undefined
+      customerPhone: state.customerPhone,
       location: state.location,
       serviceId: state.serviceId,
       serviceName: state.serviceName || service.name,
@@ -865,15 +1145,22 @@ async function createBookingFromState(state: ConversationState): Promise<{ succe
 }
 
 async function sendInstagramMessage(recipientId: string, messageText: string) {
-  const accessToken = process.env.META_PAGE_ACCESS_TOKEN;
+  // Try Instagram User Access Token first (new API), fallback to Page Access Token (legacy)
+  const accessToken = process.env.INSTAGRAM_ACCESS_TOKEN || process.env.META_PAGE_ACCESS_TOKEN;
 
   if (!accessToken) {
-    console.error('META_PAGE_ACCESS_TOKEN not configured');
+    console.error('No Instagram access token configured');
     return;
   }
 
+  // Use Instagram Graph API endpoint for IGAA tokens, Facebook Graph API for EAA tokens
+  const isInstagramToken = accessToken.startsWith('IGAA');
+  const baseUrl = isInstagramToken
+    ? 'https://graph.instagram.com/v21.0/me/messages'
+    : `https://graph.facebook.com/v21.0/me/messages`;
+
   try {
-    const response = await fetch(`https://graph.instagram.com/v21.0/me/messages?access_token=${accessToken}`, {
+    const response = await fetch(`${baseUrl}?access_token=${accessToken}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

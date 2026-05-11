@@ -105,7 +105,7 @@ function readData(): DataStore {
           sunday: { start: '09:00', end: '17:00', enabled: false },
         },
         slotDuration: 30,
-        paddingTime: 30, // 30 minutes padding between appointments
+        paddingTime: 60, // 60 minutes (1 hour) buffer between appointments
       },
     };
   }
@@ -294,93 +294,149 @@ export async function updateAvailability(availability: Availability): Promise<vo
   writeData(data);
 }
 
+// Fixed time slots: 9 AM, 1 PM, 4 PM (weekdays)
+const FIXED_SLOTS_WEEKDAY = ['09:00', '13:00', '16:00'];
+// Saturday slots: 9 AM and 1 PM only (no 4 PM, no restriction on 1 PM)
+const FIXED_SLOTS_SATURDAY = ['09:00', '13:00'];
+
+// Helper to get the start of the week (Monday) for a given date
+function getWeekStart(date: string): string {
+  const d = new Date(date + 'T00:00:00');
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust when day is Sunday
+  const monday = new Date(d.setDate(diff));
+  return monday.toISOString().split('T')[0];
+}
+
+// Helper to get all dates in a week (Monday to Friday only, excluding Saturday)
+function getWeekdayDates(weekStart: string): string[] {
+  const dates: string[] = [];
+  const start = new Date(weekStart + 'T00:00:00');
+  for (let i = 0; i < 5; i++) { // Monday to Friday only (0-4)
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    dates.push(d.toISOString().split('T')[0]);
+  }
+  return dates;
+}
+
+// Check if 9 AM and 4 PM slots are filled for every WEEKDAY in a given week (excludes Saturday)
+async function areEdgeSlotsFilledForWeek(weekStart: string): Promise<boolean> {
+  const bookings = await getBookings();
+  const availability = await getAvailability();
+  const weekdayDates = getWeekdayDates(weekStart); // Mon-Fri only
+  const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+  // For each enabled weekday in the week, check if both 9 AM and 4 PM are booked
+  for (const date of weekdayDates) {
+    const dateObj = new Date(date + 'T00:00:00');
+    const dayIndex = dateObj.getDay();
+    const dayOfWeek = dayNames[dayIndex] as keyof typeof availability.workingHours;
+    const dayHours = availability.workingHours[dayOfWeek];
+
+    // Skip disabled days (closed days don't need to be filled)
+    if (!dayHours?.enabled) {
+      continue;
+    }
+
+    // Check if this day has both 9 AM and 4 PM booked
+    const dayBookings = bookings.filter(b => b.date === date);
+    const has9AM = dayBookings.some(b => b.time === '09:00');
+    const has4PM = dayBookings.some(b => b.time === '16:00');
+
+    if (!has9AM || !has4PM) {
+      return false; // This day is missing an edge slot
+    }
+  }
+
+  return true; // All enabled weekdays have both edge slots filled
+}
+
 export async function getAvailableTimeSlots(date: string, serviceDuration?: number): Promise<string[]> {
   const availability = await getAvailability();
   const bookings = await getBookings();
   const dateBookings = bookings.filter((b) => b.date === date);
-  
+
   // Get day of week (0 = Sunday, 1 = Monday, etc.)
   const dateObj = new Date(date + 'T00:00:00');
   const dayIndex = dateObj.getDay();
   const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const dayOfWeek = dayNames[dayIndex] as keyof typeof availability.workingHours;
   const dayHours = availability.workingHours[dayOfWeek];
-  
+
   if (!dayHours?.enabled) {
     return [];
   }
 
+  // Saturday has special slots: 9 AM and 1 PM only (no restrictions)
+  const isSaturday = dayIndex === 6;
+  console.log('getAvailableTimeSlots:', { date, dayIndex, isSaturday, dayOfWeek, enabled: dayHours?.enabled });
+
+  let slotsToCheck: string[];
+  if (isSaturday) {
+    // Saturday: always offer 9 AM and 1 PM (no 4 PM, no edge slot restriction)
+    slotsToCheck = FIXED_SLOTS_SATURDAY;
+    console.log('Saturday slots to check:', slotsToCheck);
+  } else {
+    // Weekdays: check if 1 PM is unlocked (requires all weekday edge slots filled)
+    const weekStart = getWeekStart(date);
+    const edgeSlotsFilled = await areEdgeSlotsFilledForWeek(weekStart);
+    slotsToCheck = edgeSlotsFilled ? FIXED_SLOTS_WEEKDAY : ['09:00', '16:00'];
+  }
+
   const slots: string[] = [];
+  const paddingTime = availability.paddingTime || 0;
+  const requiredDuration = serviceDuration || availability.slotDuration;
+
+  // Get working hours boundaries
   const [startHour, startMin] = dayHours.start.split(':').map(Number);
   const [endHour, endMin] = dayHours.end.split(':').map(Number);
-  const slotDuration = availability.slotDuration;
-  const paddingTime = availability.paddingTime || 0;
-  
-  // Use serviceDuration if provided, otherwise use slotDuration
-  const requiredDuration = serviceDuration || slotDuration;
+  const dayStartMinutes = startHour * 60 + startMin;
+  const dayEndMinutes = endHour * 60 + endMin;
 
-  let currentHour = startHour;
-  let currentMin = startMin;
+  console.log('Working hours:', { dayStartMinutes, dayEndMinutes, requiredDuration });
 
-  while (
-    currentHour < endHour ||
-    (currentHour === endHour && currentMin < endMin)
-  ) {
-    const timeString = `${currentHour.toString().padStart(2, '0')}:${currentMin.toString().padStart(2, '0')}`;
-    
-    // Calculate the time range needed for this booking (start time - padding, end time + padding)
-    const serviceStartTime = paddingTime > 0 
+  for (const timeString of slotsToCheck) {
+    // Check if the service itself fits within working hours (excluding pre-padding)
+    const serviceEnd = addMinutes(timeString, requiredDuration);
+    const slotStartMinutes = timeToMinutes(timeString);
+    const serviceEndMinutes = timeToMinutes(serviceEnd);
+    console.log('Checking slot:', { timeString, slotStartMinutes, serviceEndMinutes, fits: slotStartMinutes >= dayStartMinutes && serviceEndMinutes <= dayEndMinutes });
+    if (slotStartMinutes < dayStartMinutes || serviceEndMinutes > dayEndMinutes) {
+      console.log('Slot rejected - outside working hours');
+      continue; // Skip slots that don't fit within working hours
+    }
+
+    // For conflict checking, include padding before and after
+    const serviceStartTime = paddingTime > 0
       ? subtractMinutes(timeString, paddingTime)
       : timeString;
     const serviceEndTime = addMinutes(timeString, requiredDuration + paddingTime);
-    
-    // Check if this time range fits within working hours
-    const serviceStartMinutes = timeToMinutes(serviceStartTime);
-    const serviceEndMinutes = timeToMinutes(serviceEndTime);
-    const dayStartMinutes = startHour * 60 + startMin;
-    const dayEndMinutes = endHour * 60 + endMin;
-    
-    if (serviceStartMinutes < dayStartMinutes || serviceEndMinutes > dayEndMinutes) {
-      // This slot doesn't fit within working hours, skip it
-      currentMin += slotDuration;
-      if (currentMin >= 60) {
-        currentHour += Math.floor(currentMin / 60);
-        currentMin = currentMin % 60;
-      }
-      continue;
-    }
-    
-    // Check if this time range conflicts with any existing booking (including padding)
+
     const isBooked = dateBookings.some((booking) => {
       const bookingTime = booking.time;
       const bookingEnd = addMinutes(bookingTime, booking.duration);
-      
+
       // Calculate booking time with padding (before and after)
-      const bookingStartWithPadding = paddingTime > 0 
+      const bookingStartWithPadding = paddingTime > 0
         ? subtractMinutes(bookingTime, paddingTime)
         : bookingTime;
       const bookingEndWithPadding = paddingTime > 0
         ? addMinutes(bookingEnd, paddingTime)
         : bookingEnd;
-      
+
       // Check if the service time range overlaps with any booking + padding
       const serviceStartMin = timeToMinutes(serviceStartTime);
       const serviceEndMin = timeToMinutes(serviceEndTime);
       const bookingStartMin = timeToMinutes(bookingStartWithPadding);
       const bookingEndMin = timeToMinutes(bookingEndWithPadding);
-      
+
       // Check for overlap: two ranges overlap if one starts before the other ends
       return serviceStartMin < bookingEndMin && serviceEndMin > bookingStartMin;
     });
 
     if (!isBooked) {
       slots.push(timeString);
-    }
-
-    currentMin += slotDuration;
-    if (currentMin >= 60) {
-      currentHour += Math.floor(currentMin / 60);
-      currentMin = currentMin % 60;
     }
   }
 

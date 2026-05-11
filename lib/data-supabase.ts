@@ -13,7 +13,7 @@ const defaultAvailability: Availability = {
     sunday: { start: '09:00', end: '17:00', enabled: false },
   },
   slotDuration: 30,
-  paddingTime: 30,
+  paddingTime: 60, // 1 hour buffer between appointments
 };
 
 export async function getServicesSupabase(): Promise<Service[]> {
@@ -45,10 +45,14 @@ export async function addServiceSupabase(service: Service): Promise<void> {
     vehicle_pricing: service.vehiclePricing || null,
     use_vehicle_pricing: service.useVehiclePricing || false,
   };
-  // Only include addon_ids if the column exists (check by trying to query it first, or make it optional)
-  // For now, make it optional - if column doesn't exist, it will be ignored
+  // Only include addon_ids if provided (column may not exist in older schemas)
   if (service.addOnIds !== undefined) {
     insertData.addon_ids = service.addOnIds || null;
+  }
+  // Only include seat_row_pricing if provided (column may not exist yet)
+  if (service.seatRowPricing !== undefined) {
+    insertData.seat_row_pricing = service.seatRowPricing;
+    insertData.use_seat_row_pricing = service.useSeatRowPricing || false;
   }
   const { error } = await supabase.from('services').insert(insertData);
   if (error) throw error;
@@ -64,6 +68,8 @@ export async function updateServiceSupabase(id: string, service: Partial<Service
   if (service.image !== undefined) updateData.image = service.image;
   if (service.vehiclePricing !== undefined) updateData.vehicle_pricing = service.vehiclePricing;
   if (service.useVehiclePricing !== undefined) updateData.use_vehicle_pricing = service.useVehiclePricing;
+  if (service.seatRowPricing !== undefined) updateData.seat_row_pricing = service.seatRowPricing;
+  if (service.useSeatRowPricing !== undefined) updateData.use_seat_row_pricing = service.useSeatRowPricing;
   // Only update addon_ids if provided and column exists
   // Make it optional for backward compatibility
   if (service.addOnIds !== undefined) {
@@ -303,6 +309,8 @@ function transformService(row: any): Service {
     image: row.image || undefined,
     vehiclePricing: row.vehicle_pricing || undefined,
     useVehiclePricing: row.use_vehicle_pricing || false,
+    seatRowPricing: row.seat_row_pricing || undefined,
+    useSeatRowPricing: row.use_seat_row_pricing || false,
     addOnIds: row.addon_ids || undefined,
   };
 }

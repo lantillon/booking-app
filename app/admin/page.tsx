@@ -42,7 +42,29 @@ const ZIP_COORDS: Record<string, { lat: number; lng: number }> = {
 };
 
 const HOME_ZIP = '79928';
+const HOME_ADDRESS = '12748 Giuseppe Pl, El Paso, TX 79928';
+const HOME_COORDS = { lat: 31.6585, lng: -106.1790 }; // Approximate coordinates for Giuseppe Pl
 const AVERAGE_SPEED_MPH = 30; // Simple estimate for ETA calculations
+
+// Generate Google Maps directions URL
+function getGoogleMapsDirectionsUrl(fromAddress: string, toAddress: string): string {
+  const from = encodeURIComponent(fromAddress);
+  const to = encodeURIComponent(toAddress);
+  return `https://www.google.com/maps/dir/?api=1&origin=${from}&destination=${to}&travelmode=driving`;
+}
+
+// Generate Google Maps URL for full route with multiple stops
+function getFullRouteUrl(stops: string[]): string {
+  if (stops.length < 2) return '';
+  const origin = encodeURIComponent(stops[0]);
+  const destination = encodeURIComponent(stops[stops.length - 1]);
+  const waypoints = stops.slice(1, -1).map(s => encodeURIComponent(s)).join('|');
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+  if (waypoints) {
+    url += `&waypoints=${waypoints}`;
+  }
+  return url;
+}
 
 function getDistanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 3959; // Earth's radius in miles
@@ -89,7 +111,7 @@ export default function AdminPage() {
   const [selectedRouteDate, setSelectedRouteDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [selectedRouteBookings, setSelectedRouteBookings] = useState<Booking[]>([]);
   const [activeTab, setActiveTab] = useState<
-    'services' | 'addons' | 'bookings' | 'availability' | 'calendar' | 'customers' | 'emergency' | 'feedback'
+    'services' | 'addons' | 'bookings' | 'availability' | 'calendar' | 'customers' | 'emergency' | 'feedback' | 'sms'
   >('services');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
@@ -211,7 +233,7 @@ export default function AdminPage() {
 
         <div className="border-b border-gray-200 mb-4 sm:mb-6">
           <nav className="-mb-px grid grid-cols-3 sm:flex sm:space-x-8 gap-0 sm:gap-0">
-            {(['services', 'addons', 'bookings', 'calendar', 'availability', 'customers', 'emergency', 'feedback'] as const).map((tab) => (
+            {(['services', 'addons', 'bookings', 'calendar', 'availability', 'customers', 'emergency', 'feedback', 'sms'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -427,6 +449,8 @@ export default function AdminPage() {
                       booking: Booking;
                       index: number;
                       fromLabel: string;
+                      fromAddress: string;
+                      toAddress: string;
                       distanceMiles: number | null;
                       driveMinutes: number | null;
                     };
@@ -436,13 +460,22 @@ export default function AdminPage() {
                     ordered.forEach((booking, index) => {
                       const prev = index === 0 ? null : ordered[index - 1];
                       const fromZip = index === 0 ? HOME_ZIP : (prev && getZipForBooking(prev)) || undefined;
-                      const fromLabel = index === 0 ? `Home base (${HOME_ZIP})` : prev?.customerName || 'Previous stop';
+                      const fromLabel = index === 0 ? 'Home' : prev?.customerName || 'Previous stop';
+                      const fromAddress = index === 0 ? HOME_ADDRESS : (prev?.location || '');
+                      const toAddress = booking.location || '';
                       const toZip = getZipForBooking(booking);
 
                       let distanceMiles: number | null = null;
                       let driveMinutes: number | null = null;
 
-                      if (fromZip && toZip && ZIP_COORDS[fromZip] && ZIP_COORDS[toZip]) {
+                      if (index === 0) {
+                        // From home to first stop
+                        const toCoords = toZip ? ZIP_COORDS[toZip] : null;
+                        if (toCoords) {
+                          distanceMiles = getDistanceMiles(HOME_COORDS.lat, HOME_COORDS.lng, toCoords.lat, toCoords.lng);
+                          driveMinutes = estimateDriveMinutes(distanceMiles);
+                        }
+                      } else if (fromZip && toZip && ZIP_COORDS[fromZip] && ZIP_COORDS[toZip]) {
                         const fromCoords = ZIP_COORDS[fromZip];
                         const toCoords = ZIP_COORDS[toZip];
                         distanceMiles = getDistanceMiles(fromCoords.lat, fromCoords.lng, toCoords.lat, toCoords.lng);
@@ -453,60 +486,108 @@ export default function AdminPage() {
                         booking,
                         index,
                         fromLabel,
+                        fromAddress,
+                        toAddress,
                         distanceMiles,
                         driveMinutes,
                       });
                     });
 
+                    // Build full route addresses for Google Maps link
+                    const allStops = [HOME_ADDRESS, ...ordered.map(b => b.location).filter(Boolean)];
+
                     return (
-                      <div className="bg-white shadow rounded-lg divide-y divide-gray-200">
-                        {legs.map((leg) => (
-                          <div key={leg.booking.id} className="p-4 sm:p-5">
-                            <div className="flex justify-between items-start gap-3">
-                              <div className="flex-1 min-w-0">
-                                <div className="text-xs text-gray-500 mb-1">Stop {leg.index + 1}</div>
-                                <h4 className="text-base sm:text-lg font-semibold text-black break-words">
-                                  {leg.booking.customerName}
-                                </h4>
-                                <p className="text-xs sm:text-sm text-black">
-                                  <strong>Time:</strong> {formatTimeToAMPM(leg.booking.time)} (
-                                  {formatDuration(leg.booking.duration)})
-                                </p>
-                                <p className="text-xs sm:text-sm text-black break-words">
-                                  <strong>Service:</strong> {leg.booking.serviceName}
-                                </p>
-                                <p className="text-xs sm:text-sm text-black break-words">
-                                  <strong>Location:</strong> {leg.booking.location || 'Not provided'}
-                                </p>
-                                {leg.booking.zipCode && (
-                                  <p className="text-xs sm:text-sm text-black">
-                                    <strong>ZIP:</strong> {leg.booking.zipCode}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                            <div className="mt-3 text-xs sm:text-sm text-gray-700">
-                              <div className="font-medium mb-0.5">Drive from previous stop:</div>
-                              <div>
-                                <span className="font-semibold text-black">{leg.fromLabel}</span>
-                                {leg.distanceMiles !== null && leg.driveMinutes !== null ? (
-                                  <>
-                                    <span className="text-black"> → {leg.booking.customerName}</span>
-                                    <span className="text-black">
-                                      {' '}
-                                      • {leg.distanceMiles.toFixed(1)} miles • ETA drive {formatDuration(leg.driveMinutes)}
-                                    </span>
-                                  </>
-                                ) : (
-                                  <span className="text-black">
-                                    {' '}
-                                    • Drive estimate unavailable (missing or unsupported ZIP codes).
-                                  </span>
-                                )}
-                              </div>
-                            </div>
+                      <div className="space-y-4">
+                        {/* Full Route Button */}
+                        {allStops.length >= 2 && (
+                          <a
+                            href={getFullRouteUrl(allStops)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium text-sm"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                            </svg>
+                            Open Full Route in Google Maps
+                          </a>
+                        )}
+
+                        {/* Starting Point */}
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center text-white text-xs font-bold">H</div>
+                            <span className="font-semibold text-green-800">Starting Point - Home</span>
                           </div>
-                        ))}
+                          <p className="text-sm text-green-700 ml-8">{HOME_ADDRESS}</p>
+                        </div>
+
+                        {/* Route Legs */}
+                        <div className="bg-white shadow rounded-lg divide-y divide-gray-200">
+                          {legs.map((leg) => (
+                            <div key={leg.booking.id} className="p-4 sm:p-5">
+                              {/* Drive info banner */}
+                              <div className="mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                                  <div className="text-sm">
+                                    <span className="text-blue-800">
+                                      <strong>{leg.fromLabel}</strong> → <strong>{leg.booking.customerName}</strong>
+                                    </span>
+                                    {leg.distanceMiles !== null && leg.driveMinutes !== null ? (
+                                      <span className="text-blue-600 ml-2">
+                                        ({leg.distanceMiles.toFixed(1)} mi • ~{formatDuration(leg.driveMinutes)} drive)
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  {leg.fromAddress && leg.toAddress && (
+                                    <a
+                                      href={getGoogleMapsDirectionsUrl(leg.fromAddress, leg.toAddress)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 px-3 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700"
+                                    >
+                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      </svg>
+                                      Get Directions
+                                    </a>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Stop details */}
+                              <div className="flex justify-between items-start gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <div className="w-6 h-6 bg-sky-500 rounded-full flex items-center justify-center text-white text-xs font-bold">
+                                      {leg.index + 1}
+                                    </div>
+                                    <h4 className="text-base sm:text-lg font-semibold text-black break-words">
+                                      {leg.booking.customerName}
+                                    </h4>
+                                  </div>
+                                  <div className="ml-8">
+                                    <p className="text-xs sm:text-sm text-black">
+                                      <strong>Time:</strong> {formatTimeToAMPM(leg.booking.time)} ({formatDuration(leg.booking.duration)})
+                                    </p>
+                                    <p className="text-xs sm:text-sm text-black break-words">
+                                      <strong>Service:</strong> {leg.booking.serviceName}
+                                    </p>
+                                    <p className="text-xs sm:text-sm text-black break-words">
+                                      <strong>Location:</strong> {leg.booking.location || 'Not provided'}
+                                    </p>
+                                    {leg.booking.customerPhone && (
+                                      <p className="text-xs sm:text-sm text-black">
+                                        <strong>Phone:</strong> <a href={`tel:${leg.booking.customerPhone}`} className="text-blue-600 hover:underline">{leg.booking.customerPhone}</a>
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     );
                   })()
@@ -531,11 +612,8 @@ export default function AdminPage() {
                   type RoutePoint = { label: string; coordinates: [number, number] };
                   const points: RoutePoint[] = [];
 
-                  // Start at home base
-                  const homeCoords = ZIP_COORDS[HOME_ZIP];
-                  if (homeCoords) {
-                    points.push({ label: `Home base (${HOME_ZIP})`, coordinates: [homeCoords.lat, homeCoords.lng] });
-                  }
+                  // Start at home
+                  points.push({ label: 'Home', coordinates: [HOME_COORDS.lat, HOME_COORDS.lng] });
 
                   ordered.forEach((booking) => {
                     const zip = getZipForBooking(booking);
@@ -690,7 +768,239 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+
+        {activeTab === 'sms' && (
+          <div>
+            <SMSManagement />
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+function SMSManagement() {
+  const [smsStatus, setSmsStatus] = useState<any>(null);
+  const [testPhone, setTestPhone] = useState('');
+  const [testMessage, setTestMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [isRunningReminders, setIsRunningReminders] = useState(false);
+  const [lastResult, setLastResult] = useState<any>(null);
+
+  useEffect(() => {
+    // Check SMS configuration status
+    fetch('/api/reminders')
+      .then((res) => res.json())
+      .then(setSmsStatus)
+      .catch(console.error);
+  }, []);
+
+  const handleSendTest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!testPhone || !testMessage) {
+      alert('Please enter phone number and message');
+      return;
+    }
+    setIsSending(true);
+    try {
+      const response = await fetch('/api/sms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: testPhone, message: testMessage }),
+      });
+      const result = await response.json();
+      if (result.success) {
+        alert('Test SMS sent successfully!');
+        setTestPhone('');
+        setTestMessage('');
+      } else {
+        alert(`Failed to send SMS: ${result.error || result.message || 'Unknown error'}`);
+      }
+    } catch (error: any) {
+      alert(`Error: ${error.message}`);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleRunReminders = async () => {
+    setIsRunningReminders(true);
+    try {
+      const response = await fetch('/api/reminders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer detail-labs-reminders-2026',
+        },
+      });
+      const result = await response.json();
+      setLastResult(result);
+      if (result.success) {
+        alert(`Reminders processed!\n24h: ${result.results.reminders24hSent}\n1h: ${result.results.reminders1hSent}\nRe-engagement: ${result.results.reengagementSent}`);
+      } else {
+        alert(`Error: ${result.error}`);
+      }
+    } catch (error: any) {
+      alert(`Error: ${error.message}`);
+    } finally {
+      setIsRunningReminders(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <h2 className="text-xl sm:text-2xl font-bold text-black">SMS & AI Messaging</h2>
+
+      {/* Status Card */}
+      <div className="bg-white shadow rounded-lg p-4 sm:p-6">
+        <h3 className="text-lg font-semibold text-black mb-4">Configuration Status</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className={`p-4 rounded-lg ${smsStatus?.config?.twilioConfigured ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+            <div className="flex items-center gap-2">
+              <span className={`w-3 h-3 rounded-full ${smsStatus?.config?.twilioConfigured ? 'bg-green-500' : 'bg-red-500'}`}></span>
+              <span className="font-medium">Twilio SMS</span>
+            </div>
+            <p className="text-sm text-gray-600 mt-1">
+              {smsStatus?.config?.twilioConfigured ? 'Connected & ready' : 'Not configured - add Twilio credentials'}
+            </p>
+          </div>
+          <div className={`p-4 rounded-lg ${smsStatus?.config?.aiConfigured ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}`}>
+            <div className="flex items-center gap-2">
+              <span className={`w-3 h-3 rounded-full ${smsStatus?.config?.aiConfigured ? 'bg-green-500' : 'bg-yellow-500'}`}></span>
+              <span className="font-medium">AI Personalization</span>
+            </div>
+            <p className="text-sm text-gray-600 mt-1">
+              {smsStatus?.config?.aiConfigured ? 'Claude AI active' : 'Using fallback messages'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Features Overview */}
+      <div className="bg-white shadow rounded-lg p-4 sm:p-6">
+        <h3 className="text-lg font-semibold text-black mb-4">Automated Messaging Features</h3>
+        <div className="space-y-3">
+          <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-lg">
+            <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm">1</div>
+            <div>
+              <h4 className="font-medium text-black">Booking Confirmation</h4>
+              <p className="text-sm text-gray-600">AI-generated SMS sent immediately when customer books</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 p-3 bg-purple-50 rounded-lg">
+            <div className="w-8 h-8 bg-purple-500 rounded-full flex items-center justify-center text-white text-sm">2</div>
+            <div>
+              <h4 className="font-medium text-black">24-Hour Reminder</h4>
+              <p className="text-sm text-gray-600">Friendly reminder sent day before appointment</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 p-3 bg-orange-50 rounded-lg">
+            <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center text-white text-sm">3</div>
+            <div>
+              <h4 className="font-medium text-black">1-Hour Reminder</h4>
+              <p className="text-sm text-gray-600">Quick heads-up 1 hour before service</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 p-3 bg-green-50 rounded-lg">
+            <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white text-sm">4</div>
+            <div>
+              <h4 className="font-medium text-black">Re-engagement Campaign</h4>
+              <p className="text-sm text-gray-600">AI reaches out to customers who haven't booked in 30+ days</p>
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-gray-500 mt-4">
+          Reminders run automatically every 30 minutes via Netlify scheduled functions.
+        </p>
+      </div>
+
+      {/* Manual Trigger */}
+      <div className="bg-white shadow rounded-lg p-4 sm:p-6">
+        <h3 className="text-lg font-semibold text-black mb-4">Manual Actions</h3>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <button
+            onClick={handleRunReminders}
+            disabled={isRunningReminders}
+            className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400"
+          >
+            {isRunningReminders ? 'Processing...' : 'Run Reminders Now'}
+          </button>
+        </div>
+        {lastResult && (
+          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+            <h4 className="font-medium text-black mb-2">Last Run Results:</h4>
+            <div className="text-sm space-y-1">
+              <p>24h Reminders Sent: <span className="font-semibold">{lastResult.results?.reminders24hSent || 0}</span></p>
+              <p>1h Reminders Sent: <span className="font-semibold">{lastResult.results?.reminders1hSent || 0}</span></p>
+              <p>Re-engagement Sent: <span className="font-semibold">{lastResult.results?.reengagementSent || 0}</span></p>
+              {lastResult.results?.errors?.length > 0 && (
+                <div className="mt-2 text-red-600">
+                  <p className="font-medium">Errors:</p>
+                  {lastResult.results.errors.map((err: string, i: number) => (
+                    <p key={i} className="text-xs">{err}</p>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Test SMS */}
+      <div className="bg-white shadow rounded-lg p-4 sm:p-6">
+        <h3 className="text-lg font-semibold text-black mb-4">Send Test SMS</h3>
+        <form onSubmit={handleSendTest} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-black mb-1">Phone Number</label>
+            <input
+              type="tel"
+              value={testPhone}
+              onChange={(e) => setTestPhone(e.target.value)}
+              placeholder="(915) 555-1234"
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-black mb-1">Message</label>
+            <textarea
+              value={testMessage}
+              onChange={(e) => setTestMessage(e.target.value)}
+              placeholder="Test message..."
+              rows={3}
+              className="w-full border border-gray-300 rounded-md px-3 py-2"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={isSending || !smsStatus?.config?.twilioConfigured}
+            className="px-4 py-2 bg-sky-500 text-white rounded-md hover:bg-sky-600 disabled:bg-gray-400"
+          >
+            {isSending ? 'Sending...' : 'Send Test SMS'}
+          </button>
+          {!smsStatus?.config?.twilioConfigured && (
+            <p className="text-sm text-red-600">Configure Twilio credentials to send SMS</p>
+          )}
+        </form>
+      </div>
+
+      {/* Setup Instructions */}
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 sm:p-6">
+        <h3 className="text-lg font-semibold text-black mb-3">Twilio Setup Instructions</h3>
+        <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700">
+          <li>Go to <a href="https://www.twilio.com/try-twilio" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">twilio.com/try-twilio</a> and create a free account</li>
+          <li>From the Console Dashboard, copy your <strong>Account SID</strong> and <strong>Auth Token</strong></li>
+          <li>Go to Phone Numbers → Buy a Number (free with trial)</li>
+          <li>Add these to your Netlify environment variables:
+            <ul className="list-disc list-inside ml-4 mt-1">
+              <li>TWILIO_ACCOUNT_SID</li>
+              <li>TWILIO_AUTH_TOKEN</li>
+              <li>TWILIO_PHONE_NUMBER (with +1 prefix)</li>
+              <li>CRON_SECRET (any secret string)</li>
+            </ul>
+          </li>
+          <li>Redeploy your site</li>
+        </ol>
+      </div>
     </div>
   );
 }

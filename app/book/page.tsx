@@ -27,6 +27,7 @@ export default function BookPage() {
   const [appliedDiscount, setAppliedDiscount] = useState(0);
   const [confirmedBooking, setConfirmedBooking] = useState<any>(null);
   const [selectedVehicleSize, setSelectedVehicleSize] = useState<string>('');
+  const [selectedSeatRows, setSelectedSeatRows] = useState<string>('');
   const [showAddOnsModal, setShowAddOnsModal] = useState(false);
   const [tempSelectedAddOns, setTempSelectedAddOns] = useState<string[]>([]);
   const [isLoadingServices, setIsLoadingServices] = useState(true);
@@ -169,6 +170,7 @@ export default function BookPage() {
   const handleServiceSelect = (service: Service) => {
     setSelectedService(service);
     setSelectedVehicleSize(''); // Reset vehicle size when service changes
+    setSelectedSeatRows(''); // Reset seat rows when service changes
     setStep(2);
   };
 
@@ -207,10 +209,15 @@ export default function BookPage() {
 
   const calculateTotal = () => {
     if (!selectedService) return 0;
-    
-    // Use vehicle pricing if enabled and vehicle size is selected
+
     let servicePrice = selectedService.price;
-    if (selectedService.useVehiclePricing && selectedService.vehiclePricing && selectedVehicleSize) {
+
+    // Use seat row pricing if enabled and seat rows is selected
+    if (selectedService.useSeatRowPricing && selectedService.seatRowPricing && selectedSeatRows) {
+      servicePrice = selectedService.seatRowPricing[selectedSeatRows as keyof typeof selectedService.seatRowPricing] || selectedService.price;
+    }
+    // Use vehicle pricing if enabled and vehicle size is selected
+    else if (selectedService.useVehiclePricing && selectedService.vehiclePricing && selectedVehicleSize) {
       // Handle combined categories
       if (selectedVehicleSize === 'suv' || selectedVehicleSize === 'truck') {
         servicePrice = selectedService.vehiclePricing.suv || selectedService.vehiclePricing.truck || selectedService.price;
@@ -220,7 +227,7 @@ export default function BookPage() {
         servicePrice = selectedService.vehiclePricing[selectedVehicleSize as keyof typeof selectedService.vehiclePricing] || selectedService.price;
       }
     }
-    
+
     let total = servicePrice;
     const selected = addOns.filter((a) => selectedAddOns.includes(a.id));
     selected.forEach((addOn) => {
@@ -263,11 +270,17 @@ export default function BookPage() {
 
   const handleBooking = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedService || !selectedDate || !selectedTime || !customerName || !customerEmail || !customerLocation) {
-      alert('Please fill in all required fields including your email and location');
+    if (!selectedService || !selectedDate || !selectedTime || !customerName || !customerPhone || !customerLocation) {
+      alert('Please fill in all required fields including your phone number and location');
       return;
     }
     
+    // Validate seat row selection if seat row pricing is enabled
+    if (selectedService.useSeatRowPricing && !selectedSeatRows) {
+      alert('Please select the number of seat rows');
+      return;
+    }
+
     // Validate vehicle size selection if vehicle pricing is enabled
     if (selectedService.useVehiclePricing && !selectedVehicleSize) {
       alert('Please select a vehicle size');
@@ -288,6 +301,7 @@ export default function BookPage() {
         location: customerLocation,
         discountAmount: appliedDiscount,
         vehicleSize: selectedVehicleSize || undefined,
+        seatRows: selectedSeatRows || undefined,
       }),
     });
 
@@ -498,6 +512,7 @@ export default function BookPage() {
                   setStep(1);
                   setSelectedService(null);
                   setSelectedVehicleSize('');
+                  setSelectedSeatRows('');
                 }}
                 className="text-black hover:text-black"
               >
@@ -515,7 +530,15 @@ export default function BookPage() {
               )}
               <h3 className="text-lg font-semibold text-black mb-2">{selectedService.name}</h3>
               <p className="text-black">{selectedService.description}</p>
-              {selectedService.useVehiclePricing && selectedService.vehiclePricing ? (
+              {selectedService.useSeatRowPricing && selectedService.seatRowPricing ? (
+                <div className="text-black mt-1">
+                  {selectedSeatRows ? (
+                    <p>${(selectedService.seatRowPricing[selectedSeatRows as keyof typeof selectedService.seatRowPricing] || 0).toFixed(2)} • {formatDuration(selectedService.duration)}</p>
+                  ) : (
+                    <p>Select seat rows for pricing • {formatDuration(selectedService.duration)}</p>
+                  )}
+                </div>
+              ) : selectedService.useVehiclePricing && selectedService.vehiclePricing ? (
                 <div className="text-black mt-1">
                   {selectedVehicleSize ? (
                     <p>${
@@ -537,6 +560,66 @@ export default function BookPage() {
                 <p className="text-black mt-1">${selectedService.price.toFixed(2)} • {formatDuration(selectedService.duration)}</p>
               )}
             </div>
+
+            {/* Seat Row Selection */}
+            {selectedService.useSeatRowPricing && selectedService.seatRowPricing && (
+              <div>
+                <h3 className="text-lg font-semibold text-black mb-3">How many rows of seats? *</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {/* 2 Seat Rows */}
+                  <label
+                    className={`flex items-center justify-between p-3 border-2 rounded-lg cursor-pointer transition-all ${
+                      selectedSeatRows === 'twoRows'
+                        ? 'border-sky-500 bg-sky-50'
+                        : 'border-gray-200 hover:border-gray-300 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      <input
+                        type="radio"
+                        name="seatRows"
+                        value="twoRows"
+                        checked={selectedSeatRows === 'twoRows'}
+                        onChange={(e) => setSelectedSeatRows(e.target.value)}
+                        className="mr-2"
+                        required
+                      />
+                      <div>
+                        <span className="font-medium text-black">2 Rows</span>
+                        <p className="text-sm text-gray-500">Sedans, coupes, most cars</p>
+                      </div>
+                    </div>
+                    <span className="text-black font-semibold">${selectedService.seatRowPricing.twoRows.toFixed(2)}</span>
+                  </label>
+
+                  {/* 3 Seat Rows */}
+                  <label
+                    className={`flex items-center justify-between p-3 border-2 rounded-lg cursor-pointer transition-all ${
+                      selectedSeatRows === 'threeRows'
+                        ? 'border-sky-500 bg-sky-50'
+                        : 'border-gray-200 hover:border-gray-300 bg-white'
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      <input
+                        type="radio"
+                        name="seatRows"
+                        value="threeRows"
+                        checked={selectedSeatRows === 'threeRows'}
+                        onChange={(e) => setSelectedSeatRows(e.target.value)}
+                        className="mr-2"
+                        required
+                      />
+                      <div>
+                        <span className="font-medium text-black">3 Rows</span>
+                        <p className="text-sm text-gray-500">SUVs, minivans, larger vehicles</p>
+                      </div>
+                    </div>
+                    <span className="text-black font-semibold">${selectedService.seatRowPricing.threeRows.toFixed(2)}</span>
+                  </label>
+                </div>
+              </div>
+            )}
 
             {/* Vehicle Size Selection */}
             {selectedService.useVehiclePricing && selectedService.vehiclePricing && (
@@ -709,7 +792,7 @@ export default function BookPage() {
                 </div>
                 <button
                   onClick={() => setStep(3)}
-                  disabled={!selectedDate || !selectedTime || (selectedService?.useVehiclePricing && !selectedVehicleSize)}
+                  disabled={!selectedDate || !selectedTime || (selectedService?.useSeatRowPricing && !selectedSeatRows) || (selectedService?.useVehiclePricing && !selectedVehicleSize)}
                   className="px-6 py-2 bg-sky-400/80 backdrop-blur-sm text-black rounded-md hover:bg-sky-500/90 disabled:bg-white/20 disabled:cursor-not-allowed shadow-lg"
                 >
                   Continue
@@ -789,7 +872,7 @@ export default function BookPage() {
 
             <form onSubmit={handleBooking} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-black mb-1">Name</label>
+                <label className="block text-sm font-medium text-black mb-1">Name <span className="text-red-600">*</span></label>
                 <input
                   type="text"
                   required
@@ -799,58 +882,15 @@ export default function BookPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-black mb-1">Email</label>
-                <input
-                  type="email"
-                  required
-                  value={customerEmail}
-                  onChange={(e) => setCustomerEmail(e.target.value)}
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 bg-white/30 backdrop-blur-sm"
-                />
-                {customerEmail && customerEmail.includes('@') && (
-                  <div className="mt-2 p-3 bg-sky-50/50 backdrop-blur-sm rounded-md border border-sky-200">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="text-sm font-medium text-black">Loyalty Points</p>
-                        <p className="text-lg font-bold text-sky-600">{customerPoints} points</p>
-                        <p className="text-xs text-gray-600 mt-1">
-                          {getAvailableDiscount() > 0 
-                            ? `You can save $${getAvailableDiscount().toFixed(2)}!`
-                            : 'Earn 1 point per $1 spent. 200 points = $10 discount'}
-                        </p>
-                      </div>
-                      {getAvailableDiscount() > 0 && appliedDiscount === 0 && (
-                        <button
-                          type="button"
-                          onClick={handleApplyDiscount}
-                          className="px-4 py-2 bg-sky-400 text-black rounded-md hover:bg-sky-500 font-medium text-sm"
-                        >
-                          Apply ${getAvailableDiscount().toFixed(2)} Discount
-                        </button>
-                      )}
-                      {appliedDiscount > 0 && (
-                        <button
-                          type="button"
-                          onClick={handleRemoveDiscount}
-                          className="px-4 py-2 bg-gray-400 text-black rounded-md hover:bg-gray-500 font-medium text-sm"
-                        >
-                          Remove Discount
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-black mb-1">Phone Number</label>
+                <label className="block text-sm font-medium text-black mb-1">Phone Number <span className="text-red-600">*</span></label>
                 <input
                   type="tel"
+                  required
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   placeholder="(555) 123-4567"
                   className="w-full border border-gray-300 rounded-md px-3 py-2 bg-white/30 backdrop-blur-sm"
                 />
-                <p className="text-xs text-gray-600 mt-1">Optional - for contact purposes</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-black mb-3">
@@ -1028,15 +1068,9 @@ export default function BookPage() {
                   <span>{confirmedBooking.customerName}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="font-medium">Email:</span>
-                  <span>{confirmedBooking.customerEmail}</span>
+                  <span className="font-medium">Phone:</span>
+                  <span>{confirmedBooking.customerPhone}</span>
                 </div>
-                {confirmedBooking.customerPhone && (
-                  <div className="flex justify-between">
-                    <span className="font-medium">Phone:</span>
-                    <span>{confirmedBooking.customerPhone}</span>
-                  </div>
-                )}
                 <div className="border-t pt-3 mt-3">
                   <div className="flex justify-between text-lg font-bold">
                     <span>Total Paid:</span>
@@ -1048,8 +1082,7 @@ export default function BookPage() {
 
             <div className="bg-blue-50/50 backdrop-blur-sm rounded-lg p-4 mb-6 border border-blue-200">
               <p className="text-sm text-black">
-                <strong>What's next?</strong> You should receive a confirmation email at <strong>{confirmedBooking.customerEmail}</strong>. 
-                Please check your inbox (and spam folder) for booking details.
+                <strong>What's next?</strong> We will contact you at <strong>{confirmedBooking.customerPhone}</strong> to confirm your appointment.
               </p>
             </div>
 
@@ -1156,6 +1189,7 @@ export default function BookPage() {
                   setSelectedDate('');
                   setSelectedTime('');
                   setSelectedVehicleSize('');
+                  setSelectedSeatRows('');
                   setCustomerName('');
                   setCustomerEmail('');
                   setCustomerPhone('');
