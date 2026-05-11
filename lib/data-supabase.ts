@@ -150,24 +150,63 @@ export async function getBookingSupabase(id: string): Promise<Booking | undefine
 
 export async function addBookingSupabase(booking: Booking): Promise<void> {
   if (!supabase) throw new Error('Supabase not configured');
-  const { error } = await supabase.from('bookings').insert({
+
+  // Build insert object with only fields that exist in the database
+  // Note: customer_email, vehicle_size, seat_rows, zip_code may not exist in older schemas
+  const insertData: Record<string, any> = {
     id: booking.id,
     customer_name: booking.customerName,
-    customer_email: booking.customerEmail,
     customer_phone: booking.customerPhone || null,
-    location: booking.location,
+    location: booking.location || '',
     service_id: booking.serviceId,
     service_name: booking.serviceName,
-    addon_ids: booking.addOnIds,
-    addon_names: booking.addOnNames,
+    addon_ids: booking.addOnIds || [],
+    addon_names: booking.addOnNames || [],
     date: booking.date,
     time: booking.time,
     duration: booking.duration,
     total_price: booking.totalPrice,
-    vehicle_size: booking.vehicleSize || null,
-    zip_code: booking.zipCode || null,
-  });
-  if (error) throw error;
+  };
+
+  // Add optional fields - these columns may not exist in older schemas
+  // Use empty string for customer_email if not provided (for NOT NULL constraint)
+  insertData.customer_email = booking.customerEmail || '';
+
+  // These fields may not exist - try to add them but handle gracefully
+  if (booking.vehicleSize) insertData.vehicle_size = booking.vehicleSize;
+  if (booking.seatRows) insertData.seat_rows = booking.seatRows;
+  if (booking.zipCode) insertData.zip_code = booking.zipCode;
+
+  const { error } = await supabase.from('bookings').insert(insertData);
+  if (error) {
+    console.error('Supabase booking insert error:', error);
+    // If error is about missing columns, retry without optional fields
+    if (error.message?.includes('column') && error.message?.includes('does not exist')) {
+      console.log('Retrying insert without optional columns...');
+      const basicData = {
+        id: booking.id,
+        customer_name: booking.customerName,
+        customer_email: booking.customerEmail || '',
+        customer_phone: booking.customerPhone || null,
+        location: booking.location || '',
+        service_id: booking.serviceId,
+        service_name: booking.serviceName,
+        addon_ids: booking.addOnIds || [],
+        addon_names: booking.addOnNames || [],
+        date: booking.date,
+        time: booking.time,
+        duration: booking.duration,
+        total_price: booking.totalPrice,
+      };
+      const { error: retryError } = await supabase.from('bookings').insert(basicData);
+      if (retryError) {
+        console.error('Supabase booking insert retry error:', retryError);
+        throw retryError;
+      }
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function deleteBookingSupabase(id: string): Promise<void> {
@@ -329,7 +368,7 @@ function transformBooking(row: any): Booking {
   return {
     id: row.id,
     customerName: row.customer_name,
-    customerEmail: row.customer_email,
+    customerEmail: row.customer_email || undefined,
     customerPhone: row.customer_phone || undefined,
     location: row.location,
     serviceId: row.service_id,
@@ -341,6 +380,7 @@ function transformBooking(row: any): Booking {
     duration: row.duration,
     totalPrice: parseFloat(row.total_price),
     vehicleSize: row.vehicle_size || undefined,
+    seatRows: row.seat_rows || undefined,
     zipCode: row.zip_code || undefined,
     createdAt: row.created_at,
   };
