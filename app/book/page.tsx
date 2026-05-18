@@ -902,12 +902,15 @@ export default function BookPage() {
                   onChange={(e) => setSmsOptIn(e.target.checked)}
                   className="mt-1 h-4 w-4 rounded border-gray-300 text-sky-500 focus:ring-sky-500"
                 />
-                <label htmlFor="smsOptIn" className="text-sm text-black">
-                  I agree to receive appointment reminders and updates via SMS. Message and data rates may apply. You can opt out at any time by replying STOP. View our{' '}
-                  <a href="/privacy" className="text-sky-600 underline hover:text-sky-700" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
-                  {' '}and{' '}
-                  <a href="/terms" className="text-sky-600 underline hover:text-sky-700" target="_blank" rel="noopener noreferrer">SMS Terms</a>.
-                </label>
+                <div>
+                  <label htmlFor="smsOptIn" className="text-sm text-black">
+                    I agree to receive appointment reminders and updates via SMS. Message and data rates may apply. You can opt out at any time by replying STOP. View our{' '}
+                    <a href="/privacy" className="text-sky-600 underline hover:text-sky-700" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+                    {' '}and{' '}
+                    <a href="/terms" className="text-sky-600 underline hover:text-sky-700" target="_blank" rel="noopener noreferrer">SMS Terms</a>.
+                  </label>
+                  <p className="text-xs text-gray-500 mt-1">Powered by Automation Lab</p>
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-black mb-3">
