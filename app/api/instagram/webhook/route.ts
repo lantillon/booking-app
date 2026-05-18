@@ -109,6 +109,7 @@ interface ConversationState {
   servicePrice?: number;
   serviceDuration?: number;
   vehicleSize?: string;
+  vehicleYear?: number;
   addOnIds?: string[];
   addOnNames?: string[];
   addOnPrices?: number[];
@@ -444,6 +445,7 @@ async function handleMessage(senderId: string, messageText: string, imageUrl?: s
       if (ext.servicePrice) state.servicePrice = ext.servicePrice;
       if (ext.serviceDuration) state.serviceDuration = ext.serviceDuration;
       if (ext.vehicleSize) state.vehicleSize = ext.vehicleSize;
+      if (ext.vehicleYear) state.vehicleYear = ext.vehicleYear;
       if (ext.addOnIds?.length) state.addOnIds = ext.addOnIds;
       if (ext.addOnNames?.length) state.addOnNames = ext.addOnNames;
       if (ext.addOnPrices?.length) state.addOnPrices = ext.addOnPrices;
@@ -454,6 +456,16 @@ async function handleMessage(senderId: string, messageText: string, imageUrl?: s
       if (ext.email) state.customerEmail = ext.email;
       if (ext.location) state.location = ext.location;
       if (ext.zipCode) state.zipCode = ext.zipCode;
+    }
+
+    // Check if vehicle is too old (2015 or older) - hand over to human
+    if (state.vehicleYear && state.vehicleYear <= 2015 && !state.humanTakeover) {
+      state.humanTakeover = true;
+      state.humanTakeoverAt = Date.now();
+      state.humanTakeoverDuration = HUMAN_TAKEOVER_DURATION;
+      await sendInstagramMessage(senderId, "Thanks for reaching out! Let me connect you with our owner who can help you directly. They'll message you shortly! 🙌");
+      await saveConversationState(senderId, state);
+      return;
     }
 
     state.history.push({ role: 'assistant', content: response.reply });
@@ -587,8 +599,9 @@ async function generateAIResponse(
   let bookingProgress = '';
   if (state.instagramName) bookingProgress += `Instagram Name: ${state.instagramName}\n`;
   if (state.instagramUsername) bookingProgress += `Instagram Username: @${state.instagramUsername}\n`;
+  if (state.vehicleYear) bookingProgress += `✓ Vehicle Year: ${state.vehicleYear}\n`;
   if (state.serviceName) bookingProgress += `✓ Service: ${state.serviceName} - $${state.servicePrice}\n`;
-  if (state.vehicleSize) bookingProgress += `✓ Vehicle: ${state.vehicleSize}\n`;
+  if (state.vehicleSize) bookingProgress += `✓ Vehicle Type: ${state.vehicleSize}\n`;
   if (state.addOnNames?.length) {
     const addOnTotal = state.addOnPrices?.reduce((a, b) => a + b, 0) || 0;
     bookingProgress += `✓ Add-ons: ${state.addOnNames.join(', ')} (+$${addOnTotal})\n`;
@@ -668,10 +681,17 @@ We are a premium mobile car detailing business. We come to the customer's locati
 - **Pricing based on seat rows:**
   - 2 seat rows (sedans, coupes, most cars): $85
   - 3 seat rows (SUVs, minivans, larger vehicles): $90
-- Always ask "Does your vehicle have 2 or 3 rows of seats?" before quoting
 - **Duration: 2 hours** (blocks 2 hours on the calendar + 30 min buffer after)
 - We come to YOU
 - Payment: We accept cash, credit card, Cash App, and Zelle
+
+## VEHICLE YEAR REQUIREMENT (CRITICAL!)
+**ALWAYS ask for the vehicle year BEFORE giving any price quote.**
+- Ask: "What year is your vehicle?" or "What year is your [car type]?"
+- We typically service vehicles from **2016 or newer**
+- If the vehicle is **2015 or older**, the conversation will be handed over to the owner for a custom quote
+- You MUST have the vehicle year before quoting any price
+- Also ask "Does your vehicle have 2 or 3 rows of seats?" for Interior Detail pricing
 
 ## SCHEDULING RULES
 - **WEEKDAYS (Mon-Fri)**: We offer 3 appointment times: 9:00 AM, 1:00 PM, and 4:00 PM
@@ -749,16 +769,19 @@ When a customer asks "when are you available?", "what days are open?", "do you h
 
 ## WHEN CUSTOMER WANTS TO BOOK
 Only start collecting booking information when the customer explicitly says they want to book, schedule, or make an appointment. Then collect in this order:
-1. **Zip code** (MUST collect first to determine available days - ask "What's your zip code?")
-2. Service (MUST use exact service ID from list above)
-3. **Seat rows** (for Interior Detail): Ask "Does your vehicle have 2 or 3 rows of seats?" - 2 rows = sedans/coupes ($85), 3 rows = SUVs/minivans ($90)
-4. Vehicle size (if service has vehicle pricing instead of seat row pricing): sedan, suv, truck, largeSuv, largeTruck
-5. Add-ons (optional - customer can decline)
-6. Date (YYYY-MM-DD format - MUST check LOCATION-BASED SCHEDULING rules first!)
-7. Time (only 09:00, 13:00, or 16:00 — must be available in LIVE AVAILABILITY)
-8. Phone number
-9. Full service address
-10. Confirm and book
+1. **Vehicle Year** (MUST collect first - ask "What year is your vehicle?") - DECLINE if 2015 or older
+2. **Zip code** (MUST collect to determine available days - ask "What's your zip code?")
+3. Service (MUST use exact service ID from list above)
+4. **Seat rows** (for Interior Detail): Ask "Does your vehicle have 2 or 3 rows of seats?" - 2 rows = sedans/coupes ($85), 3 rows = SUVs/minivans ($90)
+5. Vehicle size (if service has vehicle pricing instead of seat row pricing): sedan, suv, truck, largeSuv, largeTruck
+6. Add-ons (optional - customer can decline)
+7. Date (YYYY-MM-DD format - MUST check LOCATION-BASED SCHEDULING rules first!)
+8. Time (only 09:00, 13:00, or 16:00 — must be available in LIVE AVAILABILITY)
+9. Phone number
+10. Full service address
+11. Confirm and book
+
+**CRITICAL: You MUST ask for vehicle year BEFORE giving any price. If vehicle is 2015 or older, conversation will be handed to the owner.**
 
 **NAME HANDLING:** Use the customer's Instagram name automatically. Do NOT ask for their name — it's already captured from their Instagram profile. If no Instagram name is available, just use their Instagram username.
 
@@ -833,6 +856,7 @@ If a customer sends a photo, analyze it and respond helpfully:
 {
   "reply": "Your message to customer",
   "extracted": {
+    "vehicleYear": number or null (e.g., 2020, 2018 - MUST extract when customer mentions year),
     "serviceId": "exact service ID or null",
     "serviceName": "service name or null",
     "servicePrice": number or null,
