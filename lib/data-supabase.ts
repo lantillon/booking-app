@@ -176,6 +176,7 @@ export async function addBookingSupabase(booking: Booking): Promise<void> {
   if (booking.vehicleSize) insertData.vehicle_size = booking.vehicleSize;
   if (booking.seatRows) insertData.seat_rows = booking.seatRows;
   if (booking.zipCode) insertData.zip_code = booking.zipCode;
+  if (booking.smsOptIn !== undefined) insertData.sms_opt_in = booking.smsOptIn;
 
   const { error } = await supabase.from('bookings').insert(insertData);
   if (error) {
@@ -382,6 +383,7 @@ function transformBooking(row: any): Booking {
     vehicleSize: row.vehicle_size || undefined,
     seatRows: row.seat_rows || undefined,
     zipCode: row.zip_code || undefined,
+    smsOptIn: row.sms_opt_in || false,
     createdAt: row.created_at,
   };
 }

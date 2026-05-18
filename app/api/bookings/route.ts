@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
     totalPrice: finalPrice,
     vehicleSize: bookingData.vehicleSize || undefined,
     seatRows: bookingData.seatRows || undefined,
+    smsOptIn: bookingData.smsOptIn || false,
     createdAt: new Date().toISOString(),
   };
 

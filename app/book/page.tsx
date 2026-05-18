@@ -35,6 +35,7 @@ export default function BookPage() {
   const [feedbackComment, setFeedbackComment] = useState('');
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [smsOptIn, setSmsOptIn] = useState(false);
 
   // Compute available add-ons for the selected service (if any)
   const availableAddOns = useMemo(() => {
@@ -302,6 +303,7 @@ export default function BookPage() {
         discountAmount: appliedDiscount,
         vehicleSize: selectedVehicleSize || undefined,
         seatRows: selectedSeatRows || undefined,
+        smsOptIn,
       }),
     });
 
@@ -892,6 +894,18 @@ export default function BookPage() {
                   className="w-full border border-gray-300 rounded-md px-3 py-2 bg-white/30 backdrop-blur-sm"
                 />
               </div>
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  id="smsOptIn"
+                  checked={smsOptIn}
+                  onChange={(e) => setSmsOptIn(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-sky-500 focus:ring-sky-500"
+                />
+                <label htmlFor="smsOptIn" className="text-sm text-black">
+                  I agree to receive appointment reminders and updates via SMS. Message and data rates may apply. You can opt out at any time.
+                </label>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-black mb-3">
                   Service Location <span className="text-red-600">*</span>
@@ -1197,6 +1211,7 @@ export default function BookPage() {
                   setAppliedDiscount(0);
                   setCustomerPoints(0);
                   setConfirmedBooking(null);
+                  setSmsOptIn(false);
                   setStep(1);
                 }}
                 className="px-6 py-3 bg-sky-400/80 backdrop-blur-sm text-black rounded-md hover:bg-sky-500/90 font-medium"
