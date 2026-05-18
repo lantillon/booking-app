@@ -903,7 +903,10 @@ export default function BookPage() {
                   className="mt-1 h-4 w-4 rounded border-gray-300 text-sky-500 focus:ring-sky-500"
                 />
                 <label htmlFor="smsOptIn" className="text-sm text-black">
-                  I agree to receive appointment reminders and updates via SMS. Message and data rates may apply. You can opt out at any time.
+                  I agree to receive appointment reminders and updates via SMS. Message and data rates may apply. You can opt out at any time by replying STOP. View our{' '}
+                  <Link href="/privacy" className="text-sky-600 underline hover:text-sky-700" target="_blank">Privacy Policy</Link>
+                  {' '}and{' '}
+                  <Link href="/terms" className="text-sky-600 underline hover:text-sky-700" target="_blank">SMS Terms</Link>.
                 </label>
               </div>
               <div>
