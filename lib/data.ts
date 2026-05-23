@@ -101,8 +101,8 @@ function readData(): DataStore {
           wednesday: { start: '09:00', end: '17:00', enabled: true },
           thursday: { start: '09:00', end: '17:00', enabled: true },
           friday: { start: '09:00', end: '17:00', enabled: true },
-          saturday: { start: '09:00', end: '17:00', enabled: false },
-          sunday: { start: '09:00', end: '17:00', enabled: false },
+          saturday: { start: '09:00', end: '17:00', enabled: true },
+          sunday: { start: '09:00', end: '17:00', enabled: true },
         },
         slotDuration: 30,
         paddingTime: 60, // 60 minutes (1 hour) buffer between appointments
@@ -298,6 +298,8 @@ export async function updateAvailability(availability: Availability): Promise<vo
 const FIXED_SLOTS_WEEKDAY = ['09:00', '13:00', '16:00'];
 // Saturday slots: 9 AM and 1 PM only (no 4 PM, no restriction on 1 PM)
 const FIXED_SLOTS_SATURDAY = ['09:00', '13:00'];
+// Sunday slots: 9 AM and 4 PM only
+const FIXED_SLOTS_SUNDAY = ['09:00', '16:00'];
 
 // Helper to get the start of the week (Monday) for a given date
 function getWeekStart(date: string): string {
@@ -368,12 +370,17 @@ export async function getAvailableTimeSlots(date: string, serviceDuration?: numb
     return [];
   }
 
-  // Saturday has special slots: 9 AM and 1 PM only (no restrictions)
+  // Saturday and Sunday have special slots
   const isSaturday = dayIndex === 6;
-  console.log('getAvailableTimeSlots:', { date, dayIndex, isSaturday, dayOfWeek, enabled: dayHours?.enabled });
+  const isSunday = dayIndex === 0;
+  console.log('getAvailableTimeSlots:', { date, dayIndex, isSaturday, isSunday, dayOfWeek, enabled: dayHours?.enabled });
 
   let slotsToCheck: string[];
-  if (isSaturday) {
+  if (isSunday) {
+    // Sunday: 9 AM and 4 PM only
+    slotsToCheck = FIXED_SLOTS_SUNDAY;
+    console.log('Sunday slots to check:', slotsToCheck);
+  } else if (isSaturday) {
     // Saturday: always offer 9 AM and 1 PM (no 4 PM, no edge slot restriction)
     slotsToCheck = FIXED_SLOTS_SATURDAY;
     console.log('Saturday slots to check:', slotsToCheck);

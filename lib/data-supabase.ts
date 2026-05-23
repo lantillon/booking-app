@@ -9,8 +9,8 @@ const defaultAvailability: Availability = {
     wednesday: { start: '09:00', end: '17:00', enabled: true },
     thursday: { start: '09:00', end: '17:00', enabled: true },
     friday: { start: '09:00', end: '17:00', enabled: true },
-    saturday: { start: '09:00', end: '17:00', enabled: false },
-    sunday: { start: '09:00', end: '17:00', enabled: false },
+    saturday: { start: '09:00', end: '17:00', enabled: true },
+    sunday: { start: '09:00', end: '17:00', enabled: true },
   },
   slotDuration: 30,
   paddingTime: 60, // 1 hour buffer between appointments

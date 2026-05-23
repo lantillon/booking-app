@@ -697,7 +697,7 @@ We are a premium mobile car detailing business. We come to the customer's locati
 - **WEEKDAYS (Mon-Fri)**: We offer 3 appointment times: 9:00 AM, 1:00 PM, and 4:00 PM
 - **1 PM RESTRICTION (weekdays only)**: The 1:00 PM slot is ONLY available after EVERY weekday (Mon-Fri) in the week has both a 9:00 AM AND 4:00 PM booking. Until all edge slots are filled for the week, only offer 9 AM and 4 PM on weekdays.
 - **SATURDAY**: Only 2 slots available: 9:00 AM and 1:00 PM (NO 4 PM on Saturday). The 1 PM restriction does NOT apply to Saturday — both slots are always available if not booked.
-- **SUNDAY**: Closed
+- **SUNDAY**: 2 slots available: 9:00 AM and 4:00 PM
 - Each appointment blocks its full service duration on the calendar (e.g., Interior Detail = 2 hours)
 - Add-ons add to the total duration (e.g., Extraction adds 30-45 min)
 - There is a **1-hour buffer** between all appointments for travel/setup
