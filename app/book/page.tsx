@@ -909,7 +909,10 @@ export default function BookPage() {
                     {' '}and{' '}
                     <a href="/terms" className="text-sky-600 underline hover:text-sky-700" target="_blank" rel="noopener noreferrer">SMS Terms</a>.
                   </label>
-                  <p className="text-xs text-gray-500 mt-1">Powered by Automation Lab</p>
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-sm text-gray-600">Powered by</span>
+                    <span className="text-base font-semibold text-sky-600">Automation Lab</span>
+                  </div>
                 </div>
               </div>
               <div>
