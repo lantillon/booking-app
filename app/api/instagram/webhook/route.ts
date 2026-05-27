@@ -472,17 +472,18 @@ async function handleMessage(senderId: string, messageText: string, imageUrl?: s
 
     // Handle booking action (with duplicate protection)
     if (response.action === 'book' && !state.lastBookingKey) {
-      // Create a unique key for this booking to prevent duplicates
-      const bookingKey = `${state.serviceId}_${state.selectedDate}_${state.selectedTime}_${state.customerEmail}`;
+      // Create a unique key for this booking to prevent duplicates (use phone, not email)
+      const bookingKey = `${state.serviceId}_${state.selectedDate}_${state.selectedTime}_${state.customerPhone}`;
       state.lastBookingKey = bookingKey;
 
-      // Check if this exact booking already exists
+      // Check if this exact booking already exists (use phone number for matching)
       const existingBookings = await getBookings();
+      const normalizePhone = (p?: string) => p?.replace(/\D/g, '') || '';
       const isDuplicate = existingBookings.some(b =>
         b.serviceId === state.serviceId &&
         b.date === state.selectedDate &&
         b.time === state.selectedTime &&
-        b.customerEmail?.toLowerCase() === state.customerEmail?.toLowerCase()
+        normalizePhone(b.customerPhone) === normalizePhone(state.customerPhone)
       );
 
       if (isDuplicate) {
@@ -1156,10 +1157,13 @@ async function createBookingFromState(state: ConversationState): Promise<{ succe
       totalPrice: totalPrice,
       vehicleSize: state.vehicleSize,
       zipCode: state.zipCode,
+      smsOptIn: true, // DM customers implicitly consent to messages
       createdAt: new Date().toISOString(),
     };
 
+    console.log('Creating DM booking:', JSON.stringify(booking, null, 2));
     await addBooking(booking);
+    console.log('DM booking created successfully:', booking.id);
     return { success: true, bookingId: booking.id };
 
   } catch (error: any) {
