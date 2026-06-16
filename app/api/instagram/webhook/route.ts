@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServices, getAddOns, getAvailability, getBookings, getAvailableTimeSlots, addBooking, getService } from '@/lib/data';
+import { getServices, getAddOns, getAvailability, getBookings, getAvailableTimeSlots, addBooking, getService, deleteBooking } from '@/lib/data';
 import { Booking } from '@/types';
 import { supabase } from '@/lib/supabase';
 import Anthropic from '@anthropic-ai/sdk';
@@ -128,6 +128,11 @@ interface ConversationState {
   humanTakeoverDuration?: number;
   instagramName?: string;
   instagramUsername?: string;
+  // Reschedule tracking
+  isRescheduling?: boolean;
+  existingBookingId?: string;
+  existingBookingDate?: string;
+  existingBookingTime?: string;
 }
 
 // 24 hours in milliseconds
@@ -456,6 +461,11 @@ async function handleMessage(senderId: string, messageText: string, imageUrl?: s
       if (ext.email) state.customerEmail = ext.email;
       if (ext.location) state.location = ext.location;
       if (ext.zipCode) state.zipCode = ext.zipCode;
+      // Reschedule tracking
+      if (ext.isRescheduling !== undefined) state.isRescheduling = ext.isRescheduling;
+      if (ext.existingBookingId) state.existingBookingId = ext.existingBookingId;
+      if (ext.existingBookingDate) state.existingBookingDate = ext.existingBookingDate;
+      if (ext.existingBookingTime) state.existingBookingTime = ext.existingBookingTime;
     }
 
     // Check if vehicle is too old (2015 or older) - hand over to human
@@ -470,8 +480,92 @@ async function handleMessage(senderId: string, messageText: string, imageUrl?: s
 
     state.history.push({ role: 'assistant', content: response.reply });
 
+    // Handle reschedule action - delete old booking first, then create new one
+    if (response.action === 'reschedule') {
+      const allBookings = await getBookings();
+      const today = new Date().toISOString().split('T')[0];
+      const normalizePhone = (p?: string) => p?.replace(/\D/g, '') || '';
+
+      // Try to find the existing booking to reschedule
+      let bookingToDelete = state.existingBookingId
+        ? allBookings.find(b => b.id === state.existingBookingId)
+        : null;
+
+      // Fallback: if no booking ID, try to find by customer phone + future date
+      if (!bookingToDelete && state.customerPhone) {
+        const customerFutureBookings = allBookings.filter(b =>
+          b.date >= today &&
+          normalizePhone(b.customerPhone) === normalizePhone(state.customerPhone)
+        );
+        // If they only have one future booking, use that
+        if (customerFutureBookings.length === 1) {
+          bookingToDelete = customerFutureBookings[0];
+          state.existingBookingId = bookingToDelete.id;
+          console.log('Found booking by phone fallback:', bookingToDelete.id);
+        }
+      }
+
+      if (!bookingToDelete) {
+        await sendInstagramMessage(senderId, "I couldn't find your existing appointment to reschedule. Can you confirm which appointment you'd like to change?");
+        await saveConversationState(senderId, state);
+        return;
+      }
+
+      console.log('Processing reschedule: deleting old booking', bookingToDelete.id);
+
+      // Copy service info from existing booking if not already set
+      if (!state.serviceId) {
+        state.serviceId = bookingToDelete.serviceId;
+        state.serviceName = bookingToDelete.serviceName;
+        state.serviceDuration = bookingToDelete.duration;
+      }
+      if (!state.location) state.location = bookingToDelete.location;
+      if (!state.customerPhone) state.customerPhone = bookingToDelete.customerPhone;
+      if (!state.customerEmail) state.customerEmail = bookingToDelete.customerEmail;
+      if (!state.vehicleSize) state.vehicleSize = bookingToDelete.vehicleSize;
+      if (!state.zipCode) state.zipCode = bookingToDelete.zipCode;
+      if (!state.addOnIds?.length && bookingToDelete.addOnIds?.length) {
+        state.addOnIds = bookingToDelete.addOnIds;
+        state.addOnNames = bookingToDelete.addOnNames;
+      }
+
+      try {
+        // Delete the old booking first
+        await deleteBooking(bookingToDelete.id);
+        console.log('Old booking deleted successfully:', bookingToDelete.id);
+
+        // Now create the new booking
+        const bookingResult = await createBookingFromState(state);
+        if (bookingResult.success) {
+          await sendInstagramMessage(senderId, response.reply);
+          // Reset all booking state after successful reschedule
+          state.step = 'greeting';
+          state.serviceId = undefined;
+          state.serviceName = undefined;
+          state.servicePrice = undefined;
+          state.serviceDuration = undefined;
+          state.vehicleSize = undefined;
+          state.addOnIds = undefined;
+          state.addOnNames = undefined;
+          state.addOnPrices = undefined;
+          state.selectedDate = undefined;
+          state.selectedTime = undefined;
+          state.location = undefined;
+          state.lastBookingKey = undefined;
+          state.isRescheduling = undefined;
+          state.existingBookingId = undefined;
+          state.existingBookingDate = undefined;
+          state.existingBookingTime = undefined;
+        } else {
+          await sendInstagramMessage(senderId, `Sorry, there was an issue creating your new appointment: ${bookingResult.error}. Your old appointment has been cancelled. Please try booking again.`);
+        }
+      } catch (error) {
+        console.error('Error during reschedule:', error);
+        await sendInstagramMessage(senderId, "Sorry, there was a problem rescheduling your appointment. Please contact us at 915-270-2659 for help.");
+      }
+    }
     // Handle booking action (with duplicate protection)
-    if (response.action === 'book' && !state.lastBookingKey) {
+    else if (response.action === 'book' && !state.lastBookingKey) {
       // Create a unique key for this booking to prevent duplicates (use phone, not email)
       const bookingKey = `${state.serviceId}_${state.selectedDate}_${state.selectedTime}_${state.customerPhone}`;
       state.lastBookingKey = bookingKey;
@@ -695,10 +789,9 @@ We are a premium mobile car detailing business. We come to the customer's locati
 - Also ask "Does your vehicle have 2 or 3 rows of seats?" for Interior Detail pricing
 
 ## SCHEDULING RULES
-- **WEEKDAYS (Mon-Fri)**: We offer 4 appointment times: 9:00 AM, 9:30 AM, 1:00 PM, and 4:00 PM
-- **1 PM RESTRICTION (weekdays only)**: The 1:00 PM slot is ONLY available after EVERY weekday (Mon-Fri) in the week has both a 9:00 AM AND 4:00 PM booking. Until all edge slots are filled for the week, only offer 9 AM, 9:30 AM, and 4 PM on weekdays.
-- **SATURDAY**: 3 slots available: 9:00 AM, 9:30 AM, and 1:00 PM (NO 4 PM on Saturday). The 1 PM restriction does NOT apply to Saturday.
-- **SUNDAY**: 3 slots available: 9:00 AM, 9:30 AM, and 4:00 PM
+- **WEEKDAYS (Mon-Fri)**: We offer 3 appointment times: 7:30 AM, 11:30 AM, and 5:00 PM
+- **SATURDAY**: 3 slots available: 7:30 AM, 11:30 AM, and 5:00 PM
+- **SUNDAY**: 2 slots available: 11:30 AM and 5:00 PM only (no morning slot)
 - Each appointment blocks its full service duration on the calendar (e.g., Interior Detail = 2 hours)
 - Add-ons add to the total duration (e.g., Extraction adds 30-45 min)
 - There is a **1-hour buffer** between all appointments for travel/setup
@@ -761,11 +854,10 @@ ${availableSlotsText.join('\n')}
 
 ## WHEN CUSTOMER ASKS ABOUT AVAILABILITY
 When a customer asks "when are you available?", "what days are open?", "do you have availability on [day]?", or similar:
-- We have 4 possible time slots: 9:00 AM, 9:30 AM, 1:00 PM, and 4:00 PM
-- The 1:00 PM slot only unlocks once every open day in the week has both 9 AM and 4 PM booked
+- We have 3 possible time slots: 7:30 AM, 11:30 AM, and 5:00 PM (Sunday only has 11:30 AM and 5:00 PM)
 - Show them the ACTUAL available time slots from the LIVE AVAILABILITY section above
 - ONLY mention times that are listed — never make up or guess times
-- Format nicely, e.g. "This Thursday we have openings at 9:00 AM and 4:00 PM"
+- Format nicely, e.g. "This Thursday we have openings at 7:30 AM and 5:00 PM"
 - If a day shows FULLY BOOKED / CLOSED, tell them that day is not available
 
 ## WHEN CUSTOMER WANTS TO BOOK
@@ -777,7 +869,7 @@ Only start collecting booking information when the customer explicitly says they
 5. Vehicle size (if service has vehicle pricing instead of seat row pricing): sedan, suv, truck, largeSuv, largeTruck
 6. Add-ons (optional - customer can decline)
 7. Date (YYYY-MM-DD format - MUST check LOCATION-BASED SCHEDULING rules first!)
-8. Time (only 09:00, 09:30, 13:00, or 16:00 — must be available in LIVE AVAILABILITY)
+8. Time (only 07:30, 11:30, or 17:00 — must be available in LIVE AVAILABILITY)
 9. Phone number
 10. Full service address
 11. Confirm and book
@@ -791,18 +883,46 @@ Only start collecting booking information when the customer explicitly says they
 **LOCATION RULES TO ENFORCE:**
 - If customer wants a day that doesn't match their location requirements, explain why and offer valid alternatives
 
-## THIS CUSTOMER'S PAST BOOKINGS
+## THIS CUSTOMER'S BOOKINGS
 ${(() => {
   const customerBookings = bookings.filter(b =>
     (state.customerName && b.customerName?.toLowerCase() === state.customerName.toLowerCase()) ||
     (state.customerEmail && b.customerEmail?.toLowerCase() === state.customerEmail.toLowerCase()) ||
-    (state.customerPhone && b.customerPhone === state.customerPhone)
+    (state.customerPhone && b.customerPhone === state.customerPhone) ||
+    (state.instagramName && b.customerName?.toLowerCase() === state.instagramName.toLowerCase())
   );
   if (customerBookings.length > 0) {
-    return customerBookings.map(b => `• ${b.serviceName} on ${b.date} at ${b.time} - $${b.totalPrice}`).join('\n');
+    const today = new Date().toISOString().split('T')[0];
+    const futureBookings = customerBookings.filter(b => b.date >= today);
+    const pastBookings = customerBookings.filter(b => b.date < today);
+    let result = '';
+    if (futureBookings.length > 0) {
+      result += '**UPCOMING (can be rescheduled):**\n';
+      result += futureBookings.map(b => `• ID: ${b.id} | ${b.serviceName} on ${b.date} at ${b.time} - $${b.totalPrice}`).join('\n');
+    }
+    if (pastBookings.length > 0) {
+      result += (result ? '\n\n' : '') + '**PAST:**\n';
+      result += pastBookings.slice(-3).map(b => `• ${b.serviceName} on ${b.date} at ${b.time} - $${b.totalPrice}`).join('\n');
+    }
+    return result || 'No bookings found';
   }
-  return 'No previous bookings found for this customer yet';
+  return 'No bookings found for this customer yet';
 })()}
+
+## HANDLING RESCHEDULES
+When a customer wants to reschedule an existing appointment:
+1. **Find their existing booking** from the UPCOMING bookings list above (look for the booking ID)
+2. **Confirm which booking** they want to reschedule (especially if they have multiple)
+3. **Collect the new date and time** - same rules as new bookings (check LIVE AVAILABILITY)
+4. **Confirm the change** - summarize: "I'll move your [service] from [old date/time] to [new date/time]. Does that work?"
+5. **Use action "reschedule"** when ready to complete - this will DELETE the old booking and CREATE the new one
+
+**IMPORTANT FOR RESCHEDULES:**
+- Set isRescheduling: true when customer indicates they want to reschedule
+- Set existingBookingId to the ID of the booking they want to change (from UPCOMING list)
+- Set existingBookingDate and existingBookingTime from the old booking
+- Reuse their existing info (phone, location, service) unless they want to change it
+- When all new info is confirmed, use action: "reschedule" (NOT "book")
 
 ## CURRENT BOOKING PROGRESS
 ${bookingProgress || 'Not booking yet'}
@@ -845,7 +965,7 @@ If a customer sends a photo, analyze it and respond helpfully:
 ## CRITICAL RULES
 - Default to INFO mode — answer questions, be helpful, don't push booking
 - ONLY use service IDs, names, and prices from the list above
-- ONLY offer the 4 fixed time slots: 9:00 AM, 9:30 AM, 1:00 PM (only if all days that week have 9 AM + 4 PM booked), or 4:00 PM — never invent times
+- ONLY offer the 3 fixed time slots: 7:30 AM, 11:30 AM, or 5:00 PM (Sunday only has 11:30 AM and 5:00 PM) — never invent times
 - ONLY offer time slots that appear in LIVE AVAILABILITY
 - For vehicle pricing, ask vehicle type BEFORE quoting final price
 - NEVER book a date or time that has already passed. Check the current date and time above.
@@ -866,15 +986,19 @@ If a customer sends a photo, analyze it and respond helpfully:
     "addOnIds": ["addon IDs"] or [],
     "addOnNames": ["addon names"] or [],
     "addOnPrices": [prices] or [],
-    "date": "YYYY-MM-DD or null",
-    "time": "HH:MM or null",
+    "date": "YYYY-MM-DD or null (the NEW date for reschedules)",
+    "time": "HH:MM or null (the NEW time for reschedules)",
     "name": "only if customer provides a DIFFERENT name than their Instagram name",
     "phone": "phone or null (REQUIRED for booking)",
     "email": "email or null (OPTIONAL - only if customer provides it)",
     "location": "address or null (REQUIRED for booking)",
-    "zipCode": "5-digit zip code or null"
+    "zipCode": "5-digit zip code or null",
+    "isRescheduling": true/false (set true when customer wants to reschedule),
+    "existingBookingId": "booking ID from UPCOMING list (REQUIRED for reschedule)",
+    "existingBookingDate": "original date being rescheduled (YYYY-MM-DD)",
+    "existingBookingTime": "original time being rescheduled (HH:MM)"
   },
-  "action": "continue|book|escalate"
+  "action": "continue|book|reschedule|escalate"
 }`;
 
   try {
@@ -934,7 +1058,7 @@ If a customer sends a photo, analyze it and respond helpfully:
     }
 
     const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 800,
       system: systemPrompt,
       messages,
@@ -1126,13 +1250,21 @@ async function createBookingFromState(state: ConversationState): Promise<{ succe
       servicePrice = vp[state.vehicleSize] || service.price;
     }
 
-    // Calculate total with add-ons
-    const addOnTotal = state.addOnPrices?.reduce((a, b) => a + b, 0) || 0;
+    // Get add-ons for price and duration calculation
+    const allAddOns = state.addOnIds?.length ? await getAddOns() : [];
+    const selectedAddOns = allAddOns.filter(a => state.addOnIds?.includes(a.id));
+
+    // Calculate total with add-ons (use stored prices if available, otherwise look them up)
+    let addOnTotal = 0;
+    if (state.addOnPrices?.length) {
+      addOnTotal = state.addOnPrices.reduce((a, b) => a + b, 0);
+    } else if (selectedAddOns.length) {
+      addOnTotal = selectedAddOns.reduce((acc, a) => acc + a.price, 0);
+    }
     const totalPrice = servicePrice + addOnTotal;
 
     // Calculate duration
-    const addOnDuration = state.addOnIds?.length ?
-      (await getAddOns()).filter(a => state.addOnIds?.includes(a.id)).reduce((acc, a) => acc + (a.duration || 0), 0) : 0;
+    const addOnDuration = selectedAddOns.reduce((acc, a) => acc + (a.duration || 0), 0);
     const totalDuration = service.duration + addOnDuration;
 
     // Validate that the time slot has enough space for the service + add-ons
@@ -1140,6 +1272,11 @@ async function createBookingFromState(state: ConversationState): Promise<{ succe
     if (!availableSlots.includes(state.selectedTime)) {
       return { success: false, error: `The ${state.selectedTime} slot doesn't have enough time for your ${totalDuration}-minute service. Please choose an earlier time slot.` };
     }
+
+    // Get add-on names (use stored names if available, otherwise look them up)
+    const addOnNames = state.addOnNames?.length
+      ? state.addOnNames
+      : selectedAddOns.map(a => a.name);
 
     const booking: Booking = {
       id: Date.now().toString(),
@@ -1150,7 +1287,7 @@ async function createBookingFromState(state: ConversationState): Promise<{ succe
       serviceId: state.serviceId,
       serviceName: state.serviceName || service.name,
       addOnIds: state.addOnIds || [],
-      addOnNames: state.addOnNames || [],
+      addOnNames: addOnNames,
       date: state.selectedDate,
       time: state.selectedTime,
       duration: totalDuration,
