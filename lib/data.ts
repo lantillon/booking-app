@@ -96,13 +96,13 @@ function readData(): DataStore {
       feedback: [],
       availability: {
         workingHours: {
-          monday: { start: '09:00', end: '17:00', enabled: true },
-          tuesday: { start: '09:00', end: '17:00', enabled: true },
-          wednesday: { start: '09:00', end: '17:00', enabled: true },
-          thursday: { start: '09:00', end: '17:00', enabled: true },
-          friday: { start: '09:00', end: '17:00', enabled: true },
-          saturday: { start: '09:00', end: '17:00', enabled: true },
-          sunday: { start: '09:00', end: '17:00', enabled: true },
+          monday: { start: '07:00', end: '20:00', enabled: true },
+          tuesday: { start: '07:00', end: '20:00', enabled: true },
+          wednesday: { start: '07:00', end: '20:00', enabled: true },
+          thursday: { start: '07:00', end: '20:00', enabled: true },
+          friday: { start: '07:00', end: '20:00', enabled: true },
+          saturday: { start: '07:00', end: '20:00', enabled: true },
+          sunday: { start: '11:00', end: '20:00', enabled: true },
         },
         slotDuration: 30,
         paddingTime: 60, // 60 minutes (1 hour) buffer between appointments
@@ -294,12 +294,12 @@ export async function updateAvailability(availability: Availability): Promise<vo
   writeData(data);
 }
 
-// Fixed time slots: 9 AM, 9:30 AM, 1 PM, 4 PM (weekdays)
-const FIXED_SLOTS_WEEKDAY = ['09:00', '09:30', '13:00', '16:00'];
-// Saturday slots: 9 AM, 9:30 AM, and 1 PM only (no 4 PM, no restriction on 1 PM)
-const FIXED_SLOTS_SATURDAY = ['09:00', '09:30', '13:00'];
-// Sunday slots: 9 AM, 9:30 AM, and 4 PM only
-const FIXED_SLOTS_SUNDAY = ['09:00', '09:30', '16:00'];
+// Fixed time slots: 7:30 AM, 11:30 AM, 5 PM
+const FIXED_SLOTS_WEEKDAY = ['07:30', '11:30', '17:00'];
+// Saturday slots: same as weekdays
+const FIXED_SLOTS_SATURDAY = ['07:30', '11:30', '17:00'];
+// Sunday slots: 11:30 AM and 5 PM only
+const FIXED_SLOTS_SUNDAY = ['11:30', '17:00'];
 
 // Helper to get the start of the week (Monday) for a given date
 function getWeekStart(date: string): string {
@@ -322,14 +322,14 @@ function getWeekdayDates(weekStart: string): string[] {
   return dates;
 }
 
-// Check if 9 AM and 4 PM slots are filled for every WEEKDAY in a given week (excludes Saturday)
+// Check if 7:30 AM and 5 PM slots are filled for every WEEKDAY in a given week (excludes Saturday)
 async function areEdgeSlotsFilledForWeek(weekStart: string): Promise<boolean> {
   const bookings = await getBookings();
   const availability = await getAvailability();
   const weekdayDates = getWeekdayDates(weekStart); // Mon-Fri only
   const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-  // For each enabled weekday in the week, check if both 9 AM and 4 PM are booked
+  // For each enabled weekday in the week, check if both 7:30 AM and 5 PM are booked
   for (const date of weekdayDates) {
     const dateObj = new Date(date + 'T00:00:00');
     const dayIndex = dateObj.getDay();
@@ -341,12 +341,12 @@ async function areEdgeSlotsFilledForWeek(weekStart: string): Promise<boolean> {
       continue;
     }
 
-    // Check if this day has both 9 AM and 4 PM booked
+    // Check if this day has both 7:30 AM and 5 PM booked
     const dayBookings = bookings.filter(b => b.date === date);
-    const has9AM = dayBookings.some(b => b.time === '09:00');
-    const has4PM = dayBookings.some(b => b.time === '16:00');
+    const has730AM = dayBookings.some(b => b.time === '07:30');
+    const has5PM = dayBookings.some(b => b.time === '17:00');
 
-    if (!has9AM || !has4PM) {
+    if (!has730AM || !has5PM) {
       return false; // This day is missing an edge slot
     }
   }
@@ -370,25 +370,20 @@ export async function getAvailableTimeSlots(date: string, serviceDuration?: numb
     return [];
   }
 
-  // Saturday and Sunday have special slots
-  const isSaturday = dayIndex === 6;
+  // Sunday has different slots than other days
   const isSunday = dayIndex === 0;
-  console.log('getAvailableTimeSlots:', { date, dayIndex, isSaturday, isSunday, dayOfWeek, enabled: dayHours?.enabled });
+  const isSaturday = dayIndex === 6;
 
   let slotsToCheck: string[];
   if (isSunday) {
-    // Sunday: 9 AM and 4 PM only
+    // Sunday: 11:30 AM and 5 PM only
     slotsToCheck = FIXED_SLOTS_SUNDAY;
-    console.log('Sunday slots to check:', slotsToCheck);
   } else if (isSaturday) {
-    // Saturday: always offer 9 AM and 1 PM (no 4 PM, no edge slot restriction)
+    // Saturday: 7:30 AM, 11:30 AM, 5 PM
     slotsToCheck = FIXED_SLOTS_SATURDAY;
-    console.log('Saturday slots to check:', slotsToCheck);
   } else {
-    // Weekdays: check if 1 PM is unlocked (requires all weekday edge slots filled)
-    const weekStart = getWeekStart(date);
-    const edgeSlotsFilled = await areEdgeSlotsFilledForWeek(weekStart);
-    slotsToCheck = edgeSlotsFilled ? FIXED_SLOTS_WEEKDAY : ['09:00', '16:00'];
+    // Weekdays: 7:30 AM, 11:30 AM, 5 PM
+    slotsToCheck = FIXED_SLOTS_WEEKDAY;
   }
 
   const slots: string[] = [];

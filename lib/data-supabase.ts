@@ -4,13 +4,13 @@ import { Service, AddOn, Booking, Availability, Customer, Feedback } from '@/typ
 
 const defaultAvailability: Availability = {
   workingHours: {
-    monday: { start: '09:00', end: '17:00', enabled: true },
-    tuesday: { start: '09:00', end: '17:00', enabled: true },
-    wednesday: { start: '09:00', end: '17:00', enabled: true },
-    thursday: { start: '09:00', end: '17:00', enabled: true },
-    friday: { start: '09:00', end: '17:00', enabled: true },
-    saturday: { start: '09:00', end: '17:00', enabled: true },
-    sunday: { start: '09:00', end: '17:00', enabled: true },
+    monday: { start: '07:00', end: '20:00', enabled: true },
+    tuesday: { start: '07:00', end: '20:00', enabled: true },
+    wednesday: { start: '07:00', end: '20:00', enabled: true },
+    thursday: { start: '07:00', end: '20:00', enabled: true },
+    friday: { start: '07:00', end: '20:00', enabled: true },
+    saturday: { start: '07:00', end: '20:00', enabled: true },
+    sunday: { start: '11:00', end: '20:00', enabled: true },
   },
   slotDuration: 30,
   paddingTime: 60, // 1 hour buffer between appointments

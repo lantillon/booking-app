@@ -193,7 +193,7 @@ export default function Calendar({ bookings, onDateClick }: CalendarProps) {
     const today = new Date();
     const todayString = formatDate(today);
 
-    const timeSlots = [9, 10, 11, 12, 13, 14, 15, 16, 17]; // 9 AM to 5 PM
+    const timeSlots = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]; // 7 AM to 8 PM
 
     return (
       <div className="overflow-x-auto">
