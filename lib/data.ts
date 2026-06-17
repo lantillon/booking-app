@@ -386,6 +386,12 @@ export async function getAvailableTimeSlots(date: string, serviceDuration?: numb
     slotsToCheck = FIXED_SLOTS_WEEKDAY;
   }
 
+  // Block mornings (7:30 AM and 11:30 AM) on June 21-23, 2026
+  const morningsBlockedDates = ['2026-06-21', '2026-06-22', '2026-06-23'];
+  if (morningsBlockedDates.includes(date)) {
+    slotsToCheck = slotsToCheck.filter(s => s !== '07:30' && s !== '11:30');
+  }
+
   const slots: string[] = [];
   const paddingTime = availability.paddingTime || 0;
   const requiredDuration = serviceDuration || availability.slotDuration;

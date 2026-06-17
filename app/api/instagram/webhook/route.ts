@@ -672,9 +672,14 @@ async function generateAIResponse(
     d.setDate(d.getDate() + i);
     const dateStr = d.toISOString().split('T')[0];
     const dayLabel = dayLabels[d.getDay()];
-    const slots = await getAvailableTimeSlots(dateStr);
+    let slots = await getAvailableTimeSlots(dateStr);
     // Block Feb 10-14, 2026
     const blockedDates = ['2026-02-10', '2026-02-11', '2026-02-12', '2026-02-13', '2026-02-14'];
+    // Block mornings (7:30 AM and 11:30 AM) on June 21-23, 2026
+    const morningsBlockedDates = ['2026-06-21', '2026-06-22', '2026-06-23'];
+    if (morningsBlockedDates.includes(dateStr)) {
+      slots = slots.filter(s => s !== '07:30' && s !== '11:30');
+    }
     if (blockedDates.includes(dateStr)) {
       availableSlotsText.push(`${dayLabel} ${dateStr}: BLOCKED - UNAVAILABLE`);
     } else if (slots.length > 0) {
@@ -846,6 +851,8 @@ ${locationInfo}
 
 ## BLOCKED DATES (DO NOT BOOK)
 February 10-14, 2026 are BLOCKED. Do not offer any appointments on these dates. If customer asks for these dates, say you're unavailable and offer the next available day.
+
+**June 21-23, 2026: MORNINGS BLOCKED** - Only 5:00 PM is available on these dates. Do not offer 7:30 AM or 11:30 AM slots.
 
 ## LIVE AVAILABILITY (next 14 days — AUTHORITATIVE DAY-DATE MAPPING)
 Format: [DayName] [YYYY-MM-DD]: [available times]
