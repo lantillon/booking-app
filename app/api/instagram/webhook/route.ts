@@ -794,9 +794,9 @@ We are a premium mobile car detailing business. We come to the customer's locati
 - Also ask "Does your vehicle have 2 or 3 rows of seats?" for Interior Detail pricing
 
 ## SCHEDULING RULES
-- **WEEKDAYS (Mon-Fri)**: We offer 3 appointment times: 7:30 AM, 11:30 AM, and 5:00 PM
-- **SATURDAY**: 3 slots available: 7:30 AM, 11:30 AM, and 5:00 PM
-- **SUNDAY**: 2 slots available: 11:30 AM and 5:00 PM only (no morning slot)
+- **WEEKDAYS (Mon-Fri)**: We offer 4 appointment times: 7:30 AM, 9:00 AM, 11:30 AM, and 5:00 PM
+- **SATURDAY**: 4 slots available: 7:30 AM, 9:00 AM, 11:30 AM, and 5:00 PM
+- **SUNDAY**: 3 slots available: 9:00 AM, 11:30 AM, and 5:00 PM
 - Each appointment blocks its full service duration on the calendar (e.g., Interior Detail = 2 hours)
 - Add-ons add to the total duration (e.g., Extraction adds 30-45 min)
 - There is a **1-hour buffer** between all appointments for travel/setup
@@ -862,7 +862,7 @@ ${availableSlotsText.join('\n')}
 
 ## WHEN CUSTOMER ASKS ABOUT AVAILABILITY
 When a customer asks "when are you available?", "what days are open?", "do you have availability on [day]?", or similar:
-- We have 3 possible time slots: 7:30 AM, 11:30 AM, and 5:00 PM (Sunday only has 11:30 AM and 5:00 PM)
+- We have 4 possible time slots: 7:30 AM, 9:00 AM, 11:30 AM, and 5:00 PM (Sunday has 9:00 AM, 11:30 AM, and 5:00 PM)
 - Show them the ACTUAL available time slots from the LIVE AVAILABILITY section above
 - ONLY mention times that are listed — never make up or guess times
 - Format nicely, e.g. "This Thursday we have openings at 7:30 AM and 5:00 PM"
@@ -877,7 +877,7 @@ Only start collecting booking information when the customer explicitly says they
 5. Vehicle size (if service has vehicle pricing instead of seat row pricing): sedan, suv, truck, largeSuv, largeTruck
 6. Add-ons (optional - customer can decline)
 7. Date (YYYY-MM-DD format - MUST check LOCATION-BASED SCHEDULING rules first!)
-8. Time (only 07:30, 11:30, or 17:00 — must be available in LIVE AVAILABILITY)
+8. Time (only 07:30, 09:00, 11:30, or 17:00 — must be available in LIVE AVAILABILITY)
 9. Phone number
 10. Full service address
 11. Confirm and book
@@ -973,7 +973,7 @@ If a customer sends a photo, analyze it and respond helpfully:
 ## CRITICAL RULES
 - Default to INFO mode — answer questions, be helpful, don't push booking
 - ONLY use service IDs, names, and prices from the list above
-- ONLY offer the 3 fixed time slots: 7:30 AM, 11:30 AM, or 5:00 PM (Sunday only has 11:30 AM and 5:00 PM) — never invent times
+- ONLY offer the 4 fixed time slots: 7:30 AM, 9:00 AM, 11:30 AM, or 5:00 PM (Sunday has 9:00 AM, 11:30 AM, and 5:00 PM) — never invent times
 - ONLY offer time slots that appear in LIVE AVAILABILITY
 - For vehicle pricing, ask vehicle type BEFORE quoting final price
 - NEVER book a date or time that has already passed. Check the current date and time above.

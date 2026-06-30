@@ -294,12 +294,12 @@ export async function updateAvailability(availability: Availability): Promise<vo
   writeData(data);
 }
 
-// Fixed time slots: 7:30 AM, 11:30 AM, 5 PM
-const FIXED_SLOTS_WEEKDAY = ['07:30', '11:30', '17:00'];
+// Fixed time slots: 7:30 AM, 9 AM, 11:30 AM, 5 PM
+const FIXED_SLOTS_WEEKDAY = ['07:30', '09:00', '11:30', '17:00'];
 // Saturday slots: same as weekdays
-const FIXED_SLOTS_SATURDAY = ['07:30', '11:30', '17:00'];
-// Sunday slots: 11:30 AM and 5 PM only
-const FIXED_SLOTS_SUNDAY = ['11:30', '17:00'];
+const FIXED_SLOTS_SATURDAY = ['07:30', '09:00', '11:30', '17:00'];
+// Sunday slots: 9 AM, 11:30 AM and 5 PM
+const FIXED_SLOTS_SUNDAY = ['09:00', '11:30', '17:00'];
 
 // Helper to get the start of the week (Monday) for a given date
 function getWeekStart(date: string): string {
