@@ -714,28 +714,12 @@ async function generateAIResponse(
   if (state.location) bookingProgress += `✓ Location: ${state.location}\n`;
   if (state.zipCode) bookingProgress += `✓ Zip Code: ${state.zipCode}\n`;
 
-  // Build location-based availability info
+  // Location info (distance restrictions removed)
   let locationInfo = '';
   if (state.zipCode) {
-    // Check which days are valid based on existing bookings
-    const validDays: string[] = [];
-    for (let i = 0; i < 14; i++) {
-      const d = new Date(today);
-      d.setDate(d.getDate() + i);
-      const dateStr = d.toISOString().split('T')[0];
-      const dayOfWeek = d.getDay();
-      const result = isLocationValidForDate(state.zipCode, dateStr, bookings, dayOfWeek);
-      if (result.valid) {
-        validDays.push(`${dayLabels[dayOfWeek]} ${dateStr}`);
-      }
-    }
-    if (validDays.length > 0) {
-      locationInfo = `Customer zip code ${state.zipCode} is valid. Available days based on location: ${validDays.slice(0, 7).join(', ')}${validDays.length > 7 ? '...' : ''}`;
-    } else {
-      locationInfo = `Customer zip code ${state.zipCode} - No available days match the location requirements (too far from other bookings or home base).`;
-    }
+    locationInfo = `Customer zip code: ${state.zipCode}`;
   } else {
-    locationInfo = 'Zip code not yet collected. ASK FOR ZIP CODE EARLY to determine available days.';
+    locationInfo = 'Zip code not yet collected.';
   }
 
   // Calculate total
@@ -840,12 +824,8 @@ ${addonList || 'No add-ons'}
 ## BUSINESS HOURS
 ${workingHoursText}
 
-## LOCATION-BASED SCHEDULING (IMPORTANT!)
-We are a mobile service based in East El Paso (79928). To minimize drive time:
-- First appointment of the day: must be within 10 miles of our base
-- Additional appointments: must be within 7 miles of other bookings that day
-
-**IMPORTANT: Ask for the customer's zip code EARLY in the conversation before discussing specific dates.**
+## SERVICE AREA
+We are a mobile service based in El Paso. We serve the El Paso area including surrounding communities.
 
 ${locationInfo}
 
@@ -876,7 +856,7 @@ Only start collecting booking information when the customer explicitly says they
 4. **Seat rows** (for Interior Detail): Ask "Does your vehicle have 2 or 3 rows of seats?" - 2 rows = sedans/coupes ($85), 3 rows = SUVs/minivans ($90)
 5. Vehicle size (if service has vehicle pricing instead of seat row pricing): sedan, suv, truck, largeSuv, largeTruck
 6. Add-ons (optional - customer can decline)
-7. Date (YYYY-MM-DD format - MUST check LOCATION-BASED SCHEDULING rules first!)
+7. Date (YYYY-MM-DD format - check LIVE AVAILABILITY)
 8. Time (only 07:30, 09:00, 11:30, or 17:00 — must be available in LIVE AVAILABILITY)
 9. Phone number
 10. Full service address
@@ -887,9 +867,6 @@ Only start collecting booking information when the customer explicitly says they
 **NAME HANDLING:** Use the customer's Instagram name automatically. Do NOT ask for their name — it's already captured from their Instagram profile. If no Instagram name is available, just use their Instagram username.
 
 **EMAIL IS OPTIONAL:** Do NOT ask for email. Only ask if the customer wants a confirmation email sent.
-
-**LOCATION RULES TO ENFORCE:**
-- If customer wants a day that doesn't match their location requirements, explain why and offer valid alternatives
 
 ## THIS CUSTOMER'S BOOKINGS
 ${(() => {
