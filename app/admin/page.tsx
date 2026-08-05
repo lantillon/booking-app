@@ -1184,7 +1184,6 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
   const [selectedTime, setSelectedTime] = useState('');
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [customerName, setCustomerName] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerLocation, setCustomerLocation] = useState('');
   const [selectedVehicleSize, setSelectedVehicleSize] = useState<string>('');
@@ -1215,7 +1214,7 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedService || !selectedDate || !selectedTime || !customerName || !customerEmail || !customerLocation) {
+    if (!selectedService || !selectedDate || !selectedTime || !customerName || !customerLocation) {
       alert('Please fill in all required fields');
       return;
     }
@@ -1236,7 +1235,6 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
           date: selectedDate,
           time: selectedTime,
           customerName,
-          customerEmail,
           customerPhone,
           location: customerLocation,
           vehicleSize: selectedVehicleSize || undefined,
@@ -1252,7 +1250,6 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
         setSelectedDate('');
         setSelectedTime('');
         setCustomerName('');
-        setCustomerEmail('');
         setCustomerPhone('');
         setCustomerLocation('');
         setSelectedVehicleSize('');
@@ -1443,17 +1440,6 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
               type="text"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
-              className="w-full border border-gray-300 rounded-md px-3 py-2"
-              required
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-black mb-2">Customer Email *</label>
-            <input
-              type="email"
-              value={customerEmail}
-              onChange={(e) => setCustomerEmail(e.target.value)}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
               required
             />

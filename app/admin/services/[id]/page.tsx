@@ -56,8 +56,8 @@ export default function EditServicePage() {
           };
         } else {
           data.seatRowPricing = {
-            twoRows: 0,
-            threeRows: 0,
+            twoRows: 99,
+            threeRows: 110,
           };
         }
         if (data.useSeatRowPricing === undefined) {
