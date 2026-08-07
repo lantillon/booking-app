@@ -458,32 +458,6 @@ export default function BookPage() {
                   )}
                   
                   <div className="mt-auto">
-                    {service.useVehiclePricing && service.vehiclePricing ? (
-                      <div className="flex flex-wrap gap-2 mb-2">
-                        {service.vehiclePricing.sedan !== undefined && (
-                          <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded px-2 py-1">
-                            <div className="text-xs text-black">Sedan</div>
-                            <div className="text-sm font-bold text-black">${service.vehiclePricing.sedan.toFixed(2)}</div>
-                          </div>
-                        )}
-                        {(service.vehiclePricing.suv !== undefined || service.vehiclePricing.truck !== undefined) && (
-                          <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded px-2 py-1">
-                            <div className="text-xs text-black">SUV/Truck</div>
-                            <div className="text-sm font-bold text-black">${((service.vehiclePricing.suv || service.vehiclePricing.truck) as number).toFixed(2)}</div>
-                          </div>
-                        )}
-                        {(service.vehiclePricing.largeSuv !== undefined || service.vehiclePricing.largeTruck !== undefined) && (
-                          <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded px-2 py-1">
-                            <div className="text-xs text-black">Large SUV/Lifted Truck</div>
-                            <div className="text-sm font-bold text-black">${((service.vehiclePricing.largeSuv || service.vehiclePricing.largeTruck) as number).toFixed(2)}</div>
-                          </div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="bg-white/20 backdrop-blur-sm border border-white/30 rounded px-2 py-1 inline-block mb-2">
-                        <div className="text-sm font-bold text-black">${service.price.toFixed(2)}</div>
-                      </div>
-                    )}
                     <div className="flex justify-end">
                       <span className={`text-black ${
                         services.length <= 2 ? 'text-base' : 'text-sm'
