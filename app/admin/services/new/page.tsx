@@ -24,8 +24,8 @@ export default function NewServicePage() {
     },
     useSeatRowPricing: false,
     seatRowPricing: {
-      twoRows: 99,
-      threeRows: 110,
+      twoRows: 90,
+      threeRows: 100,
     },
     addOnIds: [] as string[],
   });

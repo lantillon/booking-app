@@ -763,8 +763,8 @@ We are a premium mobile car detailing business. We come to the customer's locati
 - Complete interior deep clean
 - Includes: vacuum, wipe down of all surfaces, carpet/cloth spot treatment, upholstery cleaning, steam cleaning, floor mat cleaning, headliner cleaning, interior window cleaning, leather conditioning, and door/trunk jamb cleaning
 - **Pricing based on seat rows:**
-  - 2 seat rows (sedans, coupes, most cars): $99
-  - 3 seat rows (SUVs, minivans, larger vehicles): $110
+  - 2 seat rows (sedans, coupes, most cars): $90
+  - 3 seat rows (SUVs, minivans, larger vehicles): $100
 - **Duration: 2 hours** (blocks 2 hours on the calendar + 30 min buffer after)
 - We come to YOU
 - Payment: We accept cash, credit card, Cash App, and Zelle
@@ -853,7 +853,7 @@ Only start collecting booking information when the customer explicitly says they
 1. **Vehicle Year** (MUST collect first - ask "What year is your vehicle?") - DECLINE if 2015 or older
 2. **Zip code** (MUST collect to determine available days - ask "What's your zip code?")
 3. Service (MUST use exact service ID from list above)
-4. **Seat rows** (for Interior Detail): Ask "Does your vehicle have 2 or 3 rows of seats?" - 2 rows = sedans/coupes ($99), 3 rows = SUVs/minivans ($110)
+4. **Seat rows** (for Interior Detail): Ask "Does your vehicle have 2 or 3 rows of seats?" - 2 rows = sedans/coupes ($90), 3 rows = SUVs/minivans ($100)
 5. Vehicle size (if service has vehicle pricing instead of seat row pricing): sedan, suv, truck, largeSuv, largeTruck
 6. Add-ons (optional - customer can decline)
 7. Date (YYYY-MM-DD format - check LIVE AVAILABILITY)
