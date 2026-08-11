@@ -1187,6 +1187,7 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerLocation, setCustomerLocation] = useState('');
   const [selectedVehicleSize, setSelectedVehicleSize] = useState<string>('');
+  const [selectedSeatRows, setSelectedSeatRows] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -1224,6 +1225,11 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
       return;
     }
 
+    if (selectedService.useSeatRowPricing && !selectedSeatRows) {
+      alert('Please select seat rows');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const response = await fetch('/api/bookings', {
@@ -1238,6 +1244,7 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
           customerPhone,
           location: customerLocation,
           vehicleSize: selectedVehicleSize || undefined,
+          seatRows: selectedSeatRows || undefined,
           isEmergency: true, // Flag to bypass 24-hour restriction
         }),
       });
@@ -1253,6 +1260,7 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
         setCustomerPhone('');
         setCustomerLocation('');
         setSelectedVehicleSize('');
+        setSelectedSeatRows('');
         onBookingCreated();
       } else {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -1292,6 +1300,7 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
                 const service = services.find(s => s.id === e.target.value);
                 setSelectedService(service || null);
                 setSelectedVehicleSize('');
+                setSelectedSeatRows('');
               }}
               className="w-full border border-gray-300 rounded-md px-3 py-2"
               required
@@ -1364,6 +1373,44 @@ function EmergencyBookingForm({ services, addOns, onBookingCreated }: { services
                     </span>
                   </label>
                 )}
+              </div>
+            </div>
+          )}
+
+          {selectedService?.useSeatRowPricing && selectedService.seatRowPricing && (
+            <div>
+              <label className="block text-sm font-medium text-black mb-2">Seat Rows *</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="flex items-center justify-between p-3 border-2 rounded-lg cursor-pointer">
+                  <div className="flex items-center">
+                    <input
+                      type="radio"
+                      name="seatRows"
+                      value="twoRows"
+                      checked={selectedSeatRows === 'twoRows'}
+                      onChange={(e) => setSelectedSeatRows(e.target.value)}
+                      className="mr-2"
+                      required
+                    />
+                    <span className="font-medium text-black">2 Rows</span>
+                  </div>
+                  <span className="text-black font-semibold">${selectedService.seatRowPricing.twoRows.toFixed(2)}</span>
+                </label>
+                <label className="flex items-center justify-between p-3 border-2 rounded-lg cursor-pointer">
+                  <div className="flex items-center">
+                    <input
+                      type="radio"
+                      name="seatRows"
+                      value="threeRows"
+                      checked={selectedSeatRows === 'threeRows'}
+                      onChange={(e) => setSelectedSeatRows(e.target.value)}
+                      className="mr-2"
+                      required
+                    />
+                    <span className="font-medium text-black">3 Rows</span>
+                  </div>
+                  <span className="text-black font-semibold">${selectedService.seatRowPricing.threeRows.toFixed(2)}</span>
+                </label>
               </div>
             </div>
           )}
