@@ -4,8 +4,25 @@ import { Booking } from '@/types';
 import { supabase } from '@/lib/supabase';
 import Anthropic from '@anthropic-ai/sdk';
 
-// Track processed message IDs to prevent duplicate processing from Instagram retries
-const processedMessages = new Set<string>();
+// Check if message was already processed (using Supabase for persistence)
+async function isMessageProcessed(messageId: string): Promise<boolean> {
+  if (!supabase) return false;
+  const { data } = await supabase
+    .from('processed_messages')
+    .select('id')
+    .eq('message_id', messageId)
+    .single();
+  return !!data;
+}
+
+// Mark message as processed
+async function markMessageProcessed(messageId: string): Promise<void> {
+  if (!supabase) return;
+  await supabase.from('processed_messages').insert({ message_id: messageId });
+  // Clean up old messages (older than 1 hour)
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  await supabase.from('processed_messages').delete().lt('created_at', oneHourAgo);
+}
 
 // El Paso zip code coordinates (lat, lng)
 const ZIP_COORDS: Record<string, { lat: number; lng: number }> = {
@@ -225,18 +242,12 @@ export async function POST(request: NextRequest) {
         const recipientId = event.recipient?.id;
         const messageId = event.message?.mid;
 
-        if (messageId && processedMessages.has(messageId)) {
+        if (messageId && await isMessageProcessed(messageId)) {
           console.log('Duplicate message ignored:', messageId);
           continue;
         }
         if (messageId) {
-          processedMessages.add(messageId);
-          // Clean up old message IDs (keep last 100)
-          if (processedMessages.size > 100) {
-            const arr = Array.from(processedMessages);
-            processedMessages.clear();
-            arr.slice(-50).forEach(id => processedMessages.add(id));
-          }
+          await markMessageProcessed(messageId);
         }
 
         // Check if this message is from the business owner (human takeover)
