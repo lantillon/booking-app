@@ -294,12 +294,14 @@ export async function updateAvailability(availability: Availability): Promise<vo
   writeData(data);
 }
 
-// Fixed time slots: 7:30 AM, 9 AM, 11:30 AM, 5 PM
-const FIXED_SLOTS_WEEKDAY = ['07:30', '09:00', '11:30', '17:00'];
+// Fixed time slots: 7:30 AM, 9 AM, 11:30 AM, 2 PM, 3:30 PM
+const FIXED_SLOTS_WEEKDAY = ['07:30', '09:00', '11:30', '14:00', '15:30'];
+// Wednesday slots: same as other weekdays
+const FIXED_SLOTS_WEDNESDAY = ['07:30', '09:00', '11:30', '14:00', '15:30'];
 // Saturday slots: same as weekdays
-const FIXED_SLOTS_SATURDAY = ['07:30', '09:00', '11:30', '17:00'];
-// Sunday slots: 9 AM, 11:30 AM and 5 PM
-const FIXED_SLOTS_SUNDAY = ['09:00', '11:30', '17:00'];
+const FIXED_SLOTS_SATURDAY = ['07:30', '09:00', '11:30', '14:00', '15:30'];
+// Sunday slots: 9 AM, 11:30 AM, 2 PM, 3:30 PM
+const FIXED_SLOTS_SUNDAY = ['09:00', '11:30', '14:00', '15:30'];
 
 // Helper to get the start of the week (Monday) for a given date
 function getWeekStart(date: string): string {
@@ -370,19 +372,23 @@ export async function getAvailableTimeSlots(date: string, serviceDuration?: numb
     return [];
   }
 
-  // Sunday has different slots than other days
+  // Different days have different slots
   const isSunday = dayIndex === 0;
+  const isWednesday = dayIndex === 3;
   const isSaturday = dayIndex === 6;
 
   let slotsToCheck: string[];
   if (isSunday) {
-    // Sunday: 11:30 AM and 5 PM only
+    // Sunday: 9 AM, 11:30 AM and 5 PM
     slotsToCheck = FIXED_SLOTS_SUNDAY;
   } else if (isSaturday) {
-    // Saturday: 7:30 AM, 11:30 AM, 5 PM
+    // Saturday: 7:30 AM, 9 AM, 11:30 AM, 5 PM
     slotsToCheck = FIXED_SLOTS_SATURDAY;
+  } else if (isWednesday) {
+    // Wednesday: same as other weekdays
+    slotsToCheck = FIXED_SLOTS_WEDNESDAY;
   } else {
-    // Weekdays: 7:30 AM, 11:30 AM, 5 PM
+    // Other weekdays: 7:30 AM, 9 AM, 11:30 AM, 5 PM
     slotsToCheck = FIXED_SLOTS_WEEKDAY;
   }
 

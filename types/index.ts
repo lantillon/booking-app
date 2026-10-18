@@ -45,6 +45,7 @@ export interface Booking {
   totalPrice: number;
   vehicleSize?: string; // Optional: 'sedan', 'suv', 'truck', 'van', 'largeTruck'
   seatRows?: string; // Optional: 'twoRows', 'threeRows'
+  vehicleCount?: number; // Number of vehicles (default: 1)
   zipCode?: string; // Customer's zip code for location-based scheduling
   smsOptIn?: boolean; // Whether customer opted in to receive SMS messages
   createdAt: string;

@@ -37,30 +37,39 @@ export async function POST(request: NextRequest) {
 
   const addOns = (await getAddOns()).filter((a) => bookingData.addOnIds.includes(a.id));
   const addOnNames = addOns.map((a) => a.name);
-  
-  let totalDuration = service.duration;
+
+  // Get vehicle count (default to 1 for backward compatibility)
+  const vehicleCount = bookingData.vehicleCount || 1;
+
+  let baseDuration = service.duration;
   // Use seat row pricing if enabled and seat rows is provided
-  let totalPrice = service.price;
+  let baseServicePrice = service.price;
   if (service.useSeatRowPricing && service.seatRowPricing && bookingData.seatRows) {
     const seatRowPrice = service.seatRowPricing[bookingData.seatRows as keyof typeof service.seatRowPricing];
     if (seatRowPrice !== undefined) {
-      totalPrice = seatRowPrice;
+      baseServicePrice = seatRowPrice;
     }
   }
   // Otherwise use vehicle pricing if enabled and vehicle size is provided
   else if (service.useVehiclePricing && service.vehiclePricing && bookingData.vehicleSize) {
     const vehiclePrice = service.vehiclePricing[bookingData.vehicleSize as keyof typeof service.vehiclePricing];
     if (vehiclePrice !== undefined) {
-      totalPrice = vehiclePrice;
+      baseServicePrice = vehiclePrice;
     }
   }
 
+  // Calculate base price and duration for one vehicle (service + add-ons)
+  let baseAddOnPrice = 0;
   addOns.forEach((addOn) => {
-    totalPrice += addOn.price;
+    baseAddOnPrice += addOn.price;
     if (addOn.duration) {
-      totalDuration += addOn.duration;
+      baseDuration += addOn.duration;
     }
   });
+
+  // Multiply by vehicle count
+  const totalPrice = (baseServicePrice + baseAddOnPrice) * vehicleCount;
+  const totalDuration = baseDuration * vehicleCount;
 
   // Apply discount if provided
   let finalPrice = totalPrice;
@@ -92,6 +101,7 @@ export async function POST(request: NextRequest) {
     totalPrice: finalPrice,
     vehicleSize: bookingData.vehicleSize || undefined,
     seatRows: bookingData.seatRows || undefined,
+    vehicleCount: vehicleCount > 1 ? vehicleCount : undefined,
     smsOptIn: bookingData.smsOptIn || false,
     createdAt: new Date().toISOString(),
   };
@@ -147,6 +157,8 @@ export async function POST(request: NextRequest) {
           ? `\n\nAdd-ons: ${addOnNames.join(', ')}`
           : '';
 
+        const vehicleCountInfo = vehicleCount > 1 ? `<p><strong>Vehicles:</strong> ${vehicleCount}</p>` : '';
+
         const emailHtml = `
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
             <h2 style="color: #333;">Booking Confirmation</h2>
@@ -154,6 +166,7 @@ export async function POST(request: NextRequest) {
             <p>Your booking has been confirmed!</p>
             <div style="background-color: #f5f5f5; padding: 20px; border-radius: 5px; margin: 20px 0;">
               <p><strong>Service:</strong> ${service.name}</p>
+              ${vehicleCountInfo}
               ${addOnsList ? `<p><strong>Add-ons:</strong> ${addOnNames.join(', ')}</p>` : ''}
               <p><strong>Date:</strong> ${formattedDate}</p>
               <p><strong>Time:</strong> ${formatTimeToAMPM(bookingData.time)}</p>
@@ -166,6 +179,8 @@ export async function POST(request: NextRequest) {
           </div>
         `;
 
+        const vehicleCountText = vehicleCount > 1 ? `Vehicles: ${vehicleCount}\n` : '';
+
         const emailText = `
 Booking Confirmation
 
@@ -174,7 +189,7 @@ Hi ${bookingData.customerName},
 Your booking has been confirmed!
 
 Service: ${service.name}
-${addOnsList}
+${vehicleCountText}${addOnsList}
 Date: ${formattedDate}
 Time: ${formatTimeToAMPM(bookingData.time)}
 Duration: ${formatDuration(totalDuration)}
@@ -272,6 +287,7 @@ Detail Labs
         : booking.vehicleSize
         ? `\nVehicle Size: ${booking.vehicleSize.charAt(0).toUpperCase() + booking.vehicleSize.slice(1).replace(/([A-Z])/g, ' $1')}`
         : '';
+      const adminVehicleCountInfo = vehicleCount > 1 ? `<p><strong>Number of Vehicles:</strong> ${vehicleCount}</p>` : '';
 
       const adminEmailHtml = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -282,6 +298,7 @@ Detail Labs
             <p><strong>Customer Email:</strong> ${bookingData.customerEmail}</p>
             ${bookingData.customerPhone ? `<p><strong>Customer Phone:</strong> ${bookingData.customerPhone}</p>` : ''}
             <p><strong>Service:</strong> ${service.name}</p>
+            ${adminVehicleCountInfo}
             ${addOnNames.length > 0 ? `<p><strong>Add-ons:</strong> ${addOnNames.join(', ')}</p>` : ''}
             <p><strong>Date:</strong> ${formattedDate}</p>
             <p><strong>Time:</strong> ${formatTimeToAMPM(bookingData.time)}</p>
@@ -296,6 +313,8 @@ Detail Labs
         </div>
       `;
 
+      const adminVehicleCountText = vehicleCount > 1 ? `Number of Vehicles: ${vehicleCount}\n` : '';
+
       const adminEmailText = `
 New Booking Received
 
@@ -305,7 +324,7 @@ Customer Name: ${bookingData.customerName}
 Customer Email: ${bookingData.customerEmail}
 ${bookingData.customerPhone ? `Customer Phone: ${bookingData.customerPhone}\n` : ''}
 Service: ${service.name}
-${addOnsList}
+${adminVehicleCountText}${addOnsList}
 Date: ${formattedDate}
 Time: ${formatTimeToAMPM(bookingData.time)}
 Duration: ${formatDuration(totalDuration)}

@@ -28,6 +28,7 @@ export default function BookPage() {
   const [confirmedBooking, setConfirmedBooking] = useState<any>(null);
   const [selectedVehicleSize, setSelectedVehicleSize] = useState<string>('');
   const [selectedSeatRows, setSelectedSeatRows] = useState<string>('');
+  const [vehicleCount, setVehicleCount] = useState<number>(1);
   const [showAddOnsModal, setShowAddOnsModal] = useState(false);
   const [tempSelectedAddOns, setTempSelectedAddOns] = useState<string[]>([]);
   const [isLoadingServices, setIsLoadingServices] = useState(true);
@@ -66,19 +67,20 @@ export default function BookPage() {
 
   useEffect(() => {
     if (selectedDate && selectedService) {
-      // Calculate total duration (service + selected add-ons)
-      let totalDuration = selectedService.duration;
+      // Calculate total duration (service + selected add-ons) × vehicle count
+      let baseDuration = selectedService.duration;
       const selected = addOns.filter((a) => selectedAddOns.includes(a.id));
       selected.forEach((addOn) => {
-        if (addOn.duration) totalDuration += addOn.duration;
+        if (addOn.duration) baseDuration += addOn.duration;
       });
-      
+      const totalDuration = baseDuration * vehicleCount;
+
       fetch(`/api/timeslots?date=${selectedDate}&duration=${totalDuration}`)
         .then((res) => res.json())
         .then((slots) => {
-          // Filter out slots that are less than 24 hours away
+          // Filter out slots that are less than 2 hours away
           const now = new Date();
-          const minBookingTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours from now
+          const minBookingTime = new Date(now.getTime() + 2 * 60 * 60 * 1000); // 2 hours from now
           const selectedDateObj = parseLocalDateFromISO(selectedDate);
           const isToday = selectedDateObj.toDateString() === now.toDateString();
           
@@ -105,7 +107,7 @@ export default function BookPage() {
     } else {
       setAvailableSlots([]);
     }
-  }, [selectedDate, selectedService, selectedAddOns, addOns]);
+  }, [selectedDate, selectedService, selectedAddOns, addOns, vehicleCount]);
 
   // Fetch customer points when email is entered
   useEffect(() => {
@@ -229,10 +231,13 @@ export default function BookPage() {
       }
     }
 
-    let total = servicePrice;
+    // Multiply service price by vehicle count
+    let total = servicePrice * vehicleCount;
+
+    // Add-ons also apply to each vehicle
     const selected = addOns.filter((a) => selectedAddOns.includes(a.id));
     selected.forEach((addOn) => {
-      total += addOn.price;
+      total += addOn.price * vehicleCount;
     });
     return total;
   };
@@ -261,12 +266,13 @@ export default function BookPage() {
 
   const calculateDuration = () => {
     if (!selectedService) return 0;
-    let duration = selectedService.duration;
+    let baseDuration = selectedService.duration;
     const selected = addOns.filter((a) => selectedAddOns.includes(a.id));
     selected.forEach((addOn) => {
-      if (addOn.duration) duration += addOn.duration;
+      if (addOn.duration) baseDuration += addOn.duration;
     });
-    return duration;
+    // Multiply duration by vehicle count
+    return baseDuration * vehicleCount;
   };
 
   const handleBooking = async (e: React.FormEvent) => {
@@ -303,6 +309,7 @@ export default function BookPage() {
         discountAmount: appliedDiscount,
         vehicleSize: selectedVehicleSize || undefined,
         seatRows: selectedSeatRows || undefined,
+        vehicleCount: vehicleCount > 1 ? vehicleCount : undefined,
         smsOptIn,
       }),
     });
@@ -327,9 +334,9 @@ export default function BookPage() {
   };
 
   const getMinDate = () => {
-    // Require bookings to be at least 24 hours in advance
+    // Require bookings to be at least 2 hours in advance
     const now = new Date();
-    const minBookingTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Add 24 hours
+    const minBookingTime = new Date(now.getTime() + 2 * 60 * 60 * 1000); // Add 2 hours
     return minBookingTime.toISOString().split('T')[0];
   };
 
@@ -684,7 +691,37 @@ export default function BookPage() {
               </div>
             )}
 
-            
+            {/* Vehicle Count Selection */}
+            <div>
+              <h3 className="text-lg font-semibold text-black mb-3">Number of Vehicles</h3>
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => setVehicleCount(Math.max(1, vehicleCount - 1))}
+                  disabled={vehicleCount <= 1}
+                  className="w-10 h-10 rounded-full border-2 border-gray-300 flex items-center justify-center text-xl font-bold text-black hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  -
+                </button>
+                <span className="text-2xl font-bold text-black w-12 text-center">{vehicleCount}</span>
+                <button
+                  type="button"
+                  onClick={() => setVehicleCount(Math.min(5, vehicleCount + 1))}
+                  disabled={vehicleCount >= 5}
+                  className="w-10 h-10 rounded-full border-2 border-gray-300 flex items-center justify-center text-xl font-bold text-black hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  +
+                </button>
+                <span className="text-sm text-gray-600">
+                  {vehicleCount === 1 ? '1 vehicle' : `${vehicleCount} vehicles`}
+                </span>
+              </div>
+              {vehicleCount > 1 && (
+                <p className="text-sm text-gray-600 mt-2">
+                  Duration and price will be multiplied by {vehicleCount} for each vehicle.
+                </p>
+              )}
+            </div>
 
             {/* Date Selection */}
             <div>
@@ -957,6 +994,12 @@ export default function BookPage() {
                     <span className="text-black">Service:</span>
                     <span className="text-black">{selectedService.name}</span>
                   </div>
+                  {vehicleCount > 1 && (
+                    <div className="flex justify-between">
+                      <span className="text-black">Vehicles:</span>
+                      <span className="text-black">{vehicleCount} vehicles</span>
+                    </div>
+                  )}
                   {selectedAddOns.length > 0 && (
                     <div className="flex justify-between">
                       <span className="text-black">Add-ons:</span>
@@ -1031,6 +1074,12 @@ export default function BookPage() {
                   <span className="font-medium">Service:</span>
                   <span>{confirmedBooking.serviceName}</span>
                 </div>
+                {confirmedBooking.vehicleCount && confirmedBooking.vehicleCount > 1 && (
+                  <div className="flex justify-between">
+                    <span className="font-medium">Vehicles:</span>
+                    <span>{confirmedBooking.vehicleCount} vehicles</span>
+                  </div>
+                )}
                 {confirmedBooking.selectedAddOns && confirmedBooking.selectedAddOns.length > 0 && (
                   <div className="flex justify-between">
                     <span className="font-medium">Add-ons:</span>
@@ -1187,6 +1236,7 @@ export default function BookPage() {
                   setSelectedTime('');
                   setSelectedVehicleSize('');
                   setSelectedSeatRows('');
+                  setVehicleCount(1);
                   setCustomerName('');
                   setCustomerEmail('');
                   setCustomerPhone('');

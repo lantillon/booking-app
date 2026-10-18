@@ -175,6 +175,7 @@ export async function addBookingSupabase(booking: Booking): Promise<void> {
   // These fields may not exist - try to add them but handle gracefully
   if (booking.vehicleSize) insertData.vehicle_size = booking.vehicleSize;
   if (booking.seatRows) insertData.seat_rows = booking.seatRows;
+  if (booking.vehicleCount && booking.vehicleCount > 1) insertData.vehicle_count = booking.vehicleCount;
   if (booking.zipCode) insertData.zip_code = booking.zipCode;
   if (booking.smsOptIn !== undefined) insertData.sms_opt_in = booking.smsOptIn;
 
@@ -382,6 +383,7 @@ function transformBooking(row: any): Booking {
     totalPrice: parseFloat(row.total_price),
     vehicleSize: row.vehicle_size || undefined,
     seatRows: row.seat_rows || undefined,
+    vehicleCount: row.vehicle_count || undefined,
     zipCode: row.zip_code || undefined,
     smsOptIn: row.sms_opt_in || false,
     createdAt: row.created_at,

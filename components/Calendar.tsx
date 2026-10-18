@@ -271,7 +271,7 @@ export default function Calendar({ bookings, onDateClick }: CalendarProps) {
                                   height: `${Math.max(slotHeight, 25)}%`,
                                   minHeight: '14px',
                                 }}
-                                title={`${formatTimeToAMPM(booking.time)} - ${booking.customerName} - ${booking.serviceName}`}
+                                title={`${booking.vehicleCount && booking.vehicleCount > 1 ? `${booking.vehicleCount} vehicles - ` : ''}${formatTimeToAMPM(booking.time)} - ${booking.customerName} - ${booking.serviceName}`}
                                 onClick={(e) => handleBookingClick(booking, e)}
                               >
                                 <div className="font-semibold truncate leading-tight">{formatTimeToAMPM(booking.time)}</div>
@@ -403,7 +403,7 @@ export default function Calendar({ bookings, onDateClick }: CalendarProps) {
                                 height: `${Math.max(slotHeight, 8)}%`,
                                 minHeight: '32px',
                               }}
-                              title={`${formatTimeToAMPM(booking.time)} - ${booking.customerName} - ${booking.serviceName} - ${booking.duration} min`}
+                              title={`${booking.vehicleCount && booking.vehicleCount > 1 ? `${booking.vehicleCount} vehicles - ` : ''}${formatTimeToAMPM(booking.time)} - ${booking.customerName} - ${booking.serviceName} - ${booking.duration} min`}
                               onClick={(e) => handleBookingClick(booking, e)}
                             >
                               <div className="font-bold truncate mb-0.5">{formatTimeToAMPM(booking.time)}</div>
@@ -526,6 +526,11 @@ export default function Calendar({ bookings, onDateClick }: CalendarProps) {
                 <p className="text-sm text-black mb-2">
                   <strong>Service:</strong> {selectedBooking.serviceName}
                 </p>
+                {selectedBooking.vehicleCount && selectedBooking.vehicleCount > 1 && (
+                  <p className="text-sm text-black mb-2">
+                    <strong>Vehicles:</strong> <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">{selectedBooking.vehicleCount} vehicles</span>
+                  </p>
+                )}
                 {selectedBooking.addOnNames.length > 0 && (
                   <p className="text-sm text-black mb-2">
                     <strong>Add-ons:</strong> {selectedBooking.addOnNames.join(', ')}
@@ -603,6 +608,11 @@ export default function Calendar({ bookings, onDateClick }: CalendarProps) {
                     <div className="text-sm text-black mt-2">
                       <strong>Service:</strong> {b.serviceName}
                     </div>
+                    {b.vehicleCount && b.vehicleCount > 1 && (
+                      <div className="text-sm text-black">
+                        <strong>Vehicles:</strong> <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">{b.vehicleCount} vehicles</span>
+                      </div>
+                    )}
                     {b.addOnNames.length > 0 && (
                       <div className="text-sm text-black">
                         <strong>Add-ons:</strong> {b.addOnNames.join(', ')}
