@@ -4,24 +4,37 @@ import { Booking } from '@/types';
 import { supabase } from '@/lib/supabase';
 import Anthropic from '@anthropic-ai/sdk';
 
-// Check if message was already processed (using Supabase for persistence)
-async function isMessageProcessed(messageId: string): Promise<boolean> {
-  if (!supabase) return false;
-  const { data } = await supabase
-    .from('processed_messages')
-    .select('id')
-    .eq('message_id', messageId)
-    .single();
-  return !!data;
-}
+// Try to claim a message for processing (atomic check-and-set to prevent race conditions)
+// Returns true if this request should process the message, false if another request already claimed it
+async function tryClaimMessage(messageId: string): Promise<boolean> {
+  if (!supabase) return true; // If no Supabase, allow processing (no dedup)
 
-// Mark message as processed
-async function markMessageProcessed(messageId: string): Promise<void> {
-  if (!supabase) return;
-  await supabase.from('processed_messages').insert({ message_id: messageId });
-  // Clean up old messages (older than 1 hour)
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  await supabase.from('processed_messages').delete().lt('created_at', oneHourAgo);
+  try {
+    // Try to insert - if message_id has unique constraint, this will fail for duplicates
+    const { error } = await supabase
+      .from('processed_messages')
+      .insert({ message_id: messageId });
+
+    if (error) {
+      // If insert failed due to duplicate, another request is handling this message
+      if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('unique')) {
+        console.log('Message already being processed by another request:', messageId);
+        return false;
+      }
+      // Log other errors but allow processing
+      console.error('Error claiming message:', error);
+      return true;
+    }
+
+    // Successfully claimed - clean up old messages (older than 1 hour)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    await supabase.from('processed_messages').delete().lt('created_at', oneHourAgo);
+
+    return true;
+  } catch (err) {
+    console.error('Error in tryClaimMessage:', err);
+    return true; // Allow processing on error
+  }
 }
 
 // El Paso zip code coordinates (lat, lng)
@@ -242,12 +255,10 @@ export async function POST(request: NextRequest) {
         const recipientId = event.recipient?.id;
         const messageId = event.message?.mid;
 
-        if (messageId && await isMessageProcessed(messageId)) {
-          console.log('Duplicate message ignored:', messageId);
+        // Atomic check-and-claim to prevent race conditions with duplicate webhooks
+        if (messageId && !(await tryClaimMessage(messageId))) {
+          console.log('Duplicate webhook ignored:', messageId);
           continue;
-        }
-        if (messageId) {
-          await markMessageProcessed(messageId);
         }
 
         // Check if this message is from the business owner (human takeover)
