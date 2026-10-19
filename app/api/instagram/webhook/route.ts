@@ -975,7 +975,7 @@ If a customer sends a photo, analyze it and respond helpfully:
 - ONLY offer time slots that appear in LIVE AVAILABILITY
 - For vehicle pricing, ask vehicle type BEFORE quoting final price
 - NEVER book a date or time that has already passed. Check the current date and time above.
-- Bookings must be at least 24 hours in advance — no same-day bookings
+- Bookings must be at least 2 hours in advance
 - When ALL booking info collected, show summary and ask for confirmation
 - If customer says "agent" or wants human help, offer the owner's phone number (915-270-2659) and set action to "escalate"
 
