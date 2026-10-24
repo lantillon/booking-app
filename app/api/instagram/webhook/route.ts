@@ -396,6 +396,92 @@ export async function POST(request: NextRequest) {
         // Check if this message is from the business owner (human takeover)
         const isFromBusiness = pageId && senderId === pageId;
 
+        // Admin commands can also be sent BY the tester account (for easier access)
+        const testerAccountId = process.env.INSTAGRAM_TESTER_ID;
+        const isFromTester = testerAccountId && senderId === testerAccountId;
+        const messageText = event.message?.text || '';
+        const isAdminCommand = messageText.startsWith('!');
+
+        // Handle admin commands from tester account
+        if (isFromTester && isAdminCommand) {
+          // Process admin commands from tester
+          const adminRecipientId = senderId; // Reply back to tester
+
+          // !close [date] - block entire day
+          const closeMatch = messageText.match(/!close\s+(.+)/i);
+          if (closeMatch) {
+            const date = parseAdminDate(closeMatch[1]);
+            if (date) {
+              const success = await blockSlot(date);
+              await sendInstagramMessage(adminRecipientId, success ? `✅ Closed ${date}` : `❌ Failed to close ${date}`);
+            } else {
+              await sendInstagramMessage(adminRecipientId, `❌ Invalid date. Use: today, tomorrow, Mon, 10/28`);
+            }
+            continue;
+          }
+
+          // !open [date] - unblock entire day
+          const openMatch = messageText.match(/!open\s+(.+)/i);
+          if (openMatch) {
+            const date = parseAdminDate(openMatch[1]);
+            if (date) {
+              const success = await unblockSlot(date);
+              await sendInstagramMessage(adminRecipientId, success ? `✅ Opened ${date}` : `❌ Failed to open ${date}`);
+            } else {
+              await sendInstagramMessage(adminRecipientId, `❌ Invalid date`);
+            }
+            continue;
+          }
+
+          // !block [date] [time]
+          const blockMatch = messageText.match(/!block\s+(\S+)\s+(\S+)/i);
+          if (blockMatch) {
+            const date = parseAdminDate(blockMatch[1]);
+            const time = parseAdminTime(blockMatch[2]);
+            if (date && time) {
+              const success = await blockSlot(date, time);
+              await sendInstagramMessage(adminRecipientId, success ? `✅ Blocked ${date} at ${time}` : `❌ Failed`);
+            } else {
+              await sendInstagramMessage(adminRecipientId, `❌ Use: !block 10/28 2pm`);
+            }
+            continue;
+          }
+
+          // !unblock [date] [time]
+          const unblockMatch = messageText.match(/!unblock\s+(\S+)\s+(\S+)/i);
+          if (unblockMatch) {
+            const date = parseAdminDate(unblockMatch[1]);
+            const time = parseAdminTime(unblockMatch[2]);
+            if (date && time) {
+              const success = await unblockSlot(date, time);
+              await sendInstagramMessage(adminRecipientId, success ? `✅ Unblocked ${date} at ${time}` : `❌ Failed`);
+            } else {
+              await sendInstagramMessage(adminRecipientId, `❌ Use: !unblock 10/28 2pm`);
+            }
+            continue;
+          }
+
+          // !status
+          if (messageText.toLowerCase().includes('!status')) {
+            const blocks = await getBlockedSlots();
+            if (blocks.length === 0) {
+              await sendInstagramMessage(adminRecipientId, `📅 No blocks`);
+            } else {
+              const blockList = blocks.slice(0, 10).map(b => b.time ? `${b.date} @ ${b.time}` : `${b.date} (all day)`).join('\n');
+              await sendInstagramMessage(adminRecipientId, `📅 Blocked:\n${blockList}`);
+            }
+            continue;
+          }
+
+          // !help
+          if (messageText.toLowerCase().includes('!help')) {
+            await sendInstagramMessage(adminRecipientId, `🔧 Commands:\n!close [date]\n!open [date]\n!block [date] [time]\n!unblock [date] [time]\n!status\n\nDates: today, tomorrow, Mon, 10/28`);
+            continue;
+          }
+
+          continue; // Don't process other messages from tester as customer queries
+        }
+
         if (isFromBusiness && recipientId) {
           const messageText = event.message?.text || '';
 
