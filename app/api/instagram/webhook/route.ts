@@ -271,6 +271,7 @@ interface ConversationState {
   servicePrice?: number;
   serviceDuration?: number;
   vehicleSize?: string;
+  seatRows?: string; // 'twoRows' or 'threeRows'
   vehicleYear?: number;
   addOnIds?: string[];
   addOnNames?: string[];
@@ -779,6 +780,7 @@ async function handleMessage(senderId: string, messageText: string, imageUrl?: s
       if (ext.servicePrice) state.servicePrice = ext.servicePrice;
       if (ext.serviceDuration) state.serviceDuration = ext.serviceDuration;
       if (ext.vehicleSize) state.vehicleSize = ext.vehicleSize;
+      if (ext.seatRows) state.seatRows = ext.seatRows;
       if (ext.vehicleYear) state.vehicleYear = ext.vehicleYear;
       if (ext.addOnIds?.length) state.addOnIds = ext.addOnIds;
       if (ext.addOnNames?.length) state.addOnNames = ext.addOnNames;
@@ -874,6 +876,7 @@ async function handleMessage(senderId: string, messageText: string, imageUrl?: s
           state.servicePrice = undefined;
           state.serviceDuration = undefined;
           state.vehicleSize = undefined;
+          state.seatRows = undefined;
           state.addOnIds = undefined;
           state.addOnNames = undefined;
           state.addOnPrices = undefined;
@@ -925,6 +928,7 @@ async function handleMessage(senderId: string, messageText: string, imageUrl?: s
         state.servicePrice = undefined;
         state.serviceDuration = undefined;
         state.vehicleSize = undefined;
+        state.seatRows = undefined;
         state.addOnIds = undefined;
         state.addOnNames = undefined;
         state.addOnPrices = undefined;
@@ -1045,6 +1049,7 @@ async function generateAIResponse(
   if (state.instagramUsername) bookingProgress += `Instagram Username: @${state.instagramUsername}\n`;
   if (state.vehicleYear) bookingProgress += `✓ Vehicle Year: ${state.vehicleYear}\n`;
   if (state.serviceName) bookingProgress += `✓ Service: ${state.serviceName} - $${state.servicePrice}\n`;
+  if (state.seatRows) bookingProgress += `✓ Seat Rows: ${state.seatRows === 'twoRows' ? '2 rows' : '3 rows'}\n`;
   if (state.vehicleSize) bookingProgress += `✓ Vehicle Type: ${state.vehicleSize}\n`;
   if (state.addOnNames?.length) {
     const addOnTotal = state.addOnPrices?.reduce((a, b) => a + b, 0) || 0;
@@ -1311,6 +1316,7 @@ If a customer sends a photo, analyze it and respond helpfully:
     "servicePrice": number or null,
     "serviceDuration": number or null,
     "vehicleSize": "sedan|suv|truck|largeSuv|largeTruck or null",
+    "seatRows": "twoRows|threeRows or null (for Interior Detail pricing)",
     "addOnIds": ["addon IDs"] or [],
     "addOnNames": ["addon names"] or [],
     "addOnPrices": [prices] or [],
@@ -1571,9 +1577,12 @@ async function createBookingFromState(state: ConversationState): Promise<{ succe
       return { success: false, error: 'Service not found' };
     }
 
-    // Calculate price based on vehicle size if applicable
+    // Calculate price based on seat rows or vehicle size
     let servicePrice = service.price;
-    if (service.useVehiclePricing && service.vehiclePricing && state.vehicleSize) {
+    if (service.useSeatRowPricing && service.seatRowPricing && state.seatRows) {
+      const srp = service.seatRowPricing as Record<string, number>;
+      servicePrice = srp[state.seatRows] || service.price;
+    } else if (service.useVehiclePricing && service.vehiclePricing && state.vehicleSize) {
       const vp = service.vehiclePricing as Record<string, number>;
       servicePrice = vp[state.vehicleSize] || service.price;
     }
@@ -1621,6 +1630,7 @@ async function createBookingFromState(state: ConversationState): Promise<{ succe
       duration: totalDuration,
       totalPrice: totalPrice,
       vehicleSize: state.vehicleSize,
+      seatRows: state.seatRows,
       zipCode: state.zipCode,
       smsOptIn: true, // DM customers implicitly consent to messages
       createdAt: new Date().toISOString(),
