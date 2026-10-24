@@ -4,6 +4,138 @@ import { Booking } from '@/types';
 import { supabase } from '@/lib/supabase';
 import Anthropic from '@anthropic-ai/sdk';
 
+// ============ ADMIN BLOCK MANAGEMENT ============
+
+// Get all blocked dates/slots from Supabase
+async function getBlockedSlots(): Promise<{ date: string; time?: string }[]> {
+  if (!supabase) return [];
+  const { data } = await supabase
+    .from('blocked_slots')
+    .select('date, time')
+    .gte('date', new Date().toISOString().split('T')[0]);
+  return data || [];
+}
+
+// Block a date or specific time slot
+async function blockSlot(date: string, time?: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    await supabase.from('blocked_slots').insert({ date, time: time || null });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Unblock a date or specific time slot
+async function unblockSlot(date: string, time?: string): Promise<boolean> {
+  if (!supabase) return false;
+  try {
+    let query = supabase.from('blocked_slots').delete().eq('date', date);
+    if (time) {
+      query = query.eq('time', time);
+    } else {
+      query = query.is('time', null);
+    }
+    await query;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Check if a slot is blocked
+async function isSlotBlocked(date: string, time?: string): Promise<boolean> {
+  if (!supabase) return false;
+  // Check if entire day is blocked
+  const { data: dayBlocked } = await supabase
+    .from('blocked_slots')
+    .select('id')
+    .eq('date', date)
+    .is('time', null)
+    .single();
+  if (dayBlocked) return true;
+
+  // Check if specific time is blocked
+  if (time) {
+    const { data: slotBlocked } = await supabase
+      .from('blocked_slots')
+      .select('id')
+      .eq('date', date)
+      .eq('time', time)
+      .single();
+    if (slotBlocked) return true;
+  }
+  return false;
+}
+
+// Parse date from various formats (today, tomorrow, Mon, 10/28, 2026-10-28)
+function parseAdminDate(input: string): string | null {
+  const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Denver' }));
+  const lower = input.toLowerCase().trim();
+
+  if (lower === 'today') {
+    return today.toISOString().split('T')[0];
+  }
+  if (lower === 'tomorrow') {
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().split('T')[0];
+  }
+
+  // Day names (next occurrence)
+  const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+  const dayIndex = days.findIndex(d => lower.startsWith(d));
+  if (dayIndex !== -1) {
+    const target = new Date(today);
+    const currentDay = target.getDay();
+    let daysToAdd = dayIndex - currentDay;
+    if (daysToAdd <= 0) daysToAdd += 7;
+    target.setDate(target.getDate() + daysToAdd);
+    return target.toISOString().split('T')[0];
+  }
+
+  // MM/DD format
+  const slashMatch = input.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (slashMatch) {
+    const month = parseInt(slashMatch[1]) - 1;
+    const day = parseInt(slashMatch[2]);
+    const year = today.getFullYear();
+    const date = new Date(year, month, day);
+    if (date < today) date.setFullYear(year + 1);
+    return date.toISOString().split('T')[0];
+  }
+
+  // YYYY-MM-DD format
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    return input;
+  }
+
+  return null;
+}
+
+// Parse time from various formats (2pm, 2:00pm, 14:00, 730am)
+function parseAdminTime(input: string): string | null {
+  const lower = input.toLowerCase().replace(/\s/g, '');
+
+  // Handle formats like 2pm, 2:00pm, 730am, 7:30am
+  const match = lower.match(/^(\d{1,2}):?(\d{2})?(am|pm)?$/);
+  if (match) {
+    let hour = parseInt(match[1]);
+    const minute = match[2] ? parseInt(match[2]) : 0;
+    const ampm = match[3];
+
+    if (ampm === 'pm' && hour < 12) hour += 12;
+    if (ampm === 'am' && hour === 12) hour = 0;
+
+    return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+  }
+
+  return null;
+}
+
+// ============ END ADMIN BLOCK MANAGEMENT ============
+
 // Try to claim a message for processing (atomic check-and-set to prevent race conditions)
 // Returns true if this request should process the message, false if another request already claimed it
 async function tryClaimMessage(messageId: string): Promise<boolean> {
@@ -278,6 +410,95 @@ export async function POST(request: NextRequest) {
           if (messageText.toLowerCase().includes('!resume')) {
             console.log('Manual resume requested for customer:', recipientId);
             await clearHumanTakeover(recipientId);
+            continue;
+          }
+
+          // Admin commands (can be sent to any chat or self)
+          // !close [date] - block entire day
+          const closeMatch = messageText.match(/!close\s+(.+)/i);
+          if (closeMatch) {
+            const date = parseAdminDate(closeMatch[1]);
+            if (date) {
+              const success = await blockSlot(date);
+              if (success) {
+                await sendInstagramMessage(recipientId, `✅ Closed ${date}. No bookings will be available.`);
+              } else {
+                await sendInstagramMessage(recipientId, `❌ Failed to close ${date}.`);
+              }
+            } else {
+              await sendInstagramMessage(recipientId, `❌ Invalid date. Use: today, tomorrow, Mon, 10/28, or 2026-10-28`);
+            }
+            continue;
+          }
+
+          // !open [date] - unblock entire day
+          const openMatch = messageText.match(/!open\s+(.+)/i);
+          if (openMatch) {
+            const date = parseAdminDate(openMatch[1]);
+            if (date) {
+              const success = await unblockSlot(date);
+              if (success) {
+                await sendInstagramMessage(recipientId, `✅ Opened ${date}. Bookings are now available.`);
+              } else {
+                await sendInstagramMessage(recipientId, `❌ Failed to open ${date}.`);
+              }
+            } else {
+              await sendInstagramMessage(recipientId, `❌ Invalid date. Use: today, tomorrow, Mon, 10/28, or 2026-10-28`);
+            }
+            continue;
+          }
+
+          // !block [date] [time] - block specific slot
+          const blockMatch = messageText.match(/!block\s+(\S+)\s+(\S+)/i);
+          if (blockMatch) {
+            const date = parseAdminDate(blockMatch[1]);
+            const time = parseAdminTime(blockMatch[2]);
+            if (date && time) {
+              const success = await blockSlot(date, time);
+              if (success) {
+                await sendInstagramMessage(recipientId, `✅ Blocked ${date} at ${time}.`);
+              } else {
+                await sendInstagramMessage(recipientId, `❌ Failed to block slot.`);
+              }
+            } else {
+              await sendInstagramMessage(recipientId, `❌ Invalid format. Use: !block 10/28 2pm`);
+            }
+            continue;
+          }
+
+          // !unblock [date] [time] - unblock specific slot
+          const unblockMatch = messageText.match(/!unblock\s+(\S+)\s+(\S+)/i);
+          if (unblockMatch) {
+            const date = parseAdminDate(unblockMatch[1]);
+            const time = parseAdminTime(unblockMatch[2]);
+            if (date && time) {
+              const success = await unblockSlot(date, time);
+              if (success) {
+                await sendInstagramMessage(recipientId, `✅ Unblocked ${date} at ${time}.`);
+              } else {
+                await sendInstagramMessage(recipientId, `❌ Failed to unblock slot.`);
+              }
+            } else {
+              await sendInstagramMessage(recipientId, `❌ Invalid format. Use: !unblock 10/28 2pm`);
+            }
+            continue;
+          }
+
+          // !status - show current blocks
+          if (messageText.toLowerCase().includes('!status')) {
+            const blocks = await getBlockedSlots();
+            if (blocks.length === 0) {
+              await sendInstagramMessage(recipientId, `📅 No dates/slots currently blocked.`);
+            } else {
+              const blockList = blocks.map(b => b.time ? `${b.date} @ ${b.time}` : `${b.date} (all day)`).join('\n');
+              await sendInstagramMessage(recipientId, `📅 Blocked:\n${blockList}`);
+            }
+            continue;
+          }
+
+          // !help - show admin commands
+          if (messageText.toLowerCase().includes('!help')) {
+            await sendInstagramMessage(recipientId, `🔧 Admin Commands:\n!close [date] - Close a day\n!open [date] - Reopen a day\n!block [date] [time] - Block a slot\n!unblock [date] [time] - Unblock a slot\n!status - View blocked dates\n!pause - Pause bot (1hr)\n!resume - Resume bot\n\nDate formats: today, tomorrow, Mon, 10/28\nTime formats: 730am, 2pm, 15:30`);
             continue;
           }
 
@@ -689,20 +910,35 @@ async function generateAIResponse(
   const today = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Denver' }));
   const availableSlotsText: string[] = [];
   const dayLabels = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  // Get dynamically blocked slots from Supabase
+  const dynamicBlocks = await getBlockedSlots();
+  const blockedDays = new Set(dynamicBlocks.filter(b => !b.time).map(b => b.date));
+  const blockedTimeSlots = dynamicBlocks.filter(b => b.time);
+
   for (let i = 0; i < 14; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() + i);
     const dateStr = d.toISOString().split('T')[0];
     const dayLabel = dayLabels[d.getDay()];
     let slots = await getAvailableTimeSlots(dateStr);
-    // Block Feb 10-14, 2026 and June 21-22, 2026
+
+    // Block Feb 10-14, 2026 and June 21-22, 2026 (hardcoded)
     const blockedDates = ['2026-02-10', '2026-02-11', '2026-02-12', '2026-02-13', '2026-02-14', '2026-06-21', '2026-06-22'];
     // Block mornings (7:30 AM and 11:30 AM) on June 23, 2026
     const morningsBlockedDates = ['2026-06-23'];
     if (morningsBlockedDates.includes(dateStr)) {
       slots = slots.filter(s => s !== '07:30' && s !== '11:30');
     }
-    if (blockedDates.includes(dateStr)) {
+
+    // Filter out dynamically blocked time slots for this date
+    const dateBlockedTimes = blockedTimeSlots.filter(b => b.date === dateStr).map(b => b.time);
+    if (dateBlockedTimes.length > 0) {
+      slots = slots.filter(s => !dateBlockedTimes.includes(s));
+    }
+
+    // Check if entire day is blocked (hardcoded or dynamic)
+    if (blockedDates.includes(dateStr) || blockedDays.has(dateStr)) {
       availableSlotsText.push(`${dayLabel} ${dateStr}: BLOCKED - UNAVAILABLE`);
     } else if (slots.length > 0) {
       const formatted = slots.map(s => {
